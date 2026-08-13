@@ -14,11 +14,11 @@ from pathlib import Path
 import click
 
 from evidencetool.cli.render import to_json, to_text
-from evidencetool.diagnose import diagnose_nginx
+from evidencetool.diagnose import diagnose
 from evidencetool.models.decision import DecisionStatus
 from evidencetool.policy.loader import load_policy
 
-DEFAULT_POLICY_PATH = Path(__file__).resolve().parents[3] / "policies" / "nginx.yaml"
+DEFAULT_POLICY_DIR = Path(__file__).resolve().parents[3] / "policies"
 
 
 @click.group()
@@ -27,7 +27,7 @@ def cli():
 
 
 @cli.command()
-@click.argument("target", type=click.Choice(["nginx"]))
+@click.argument("target", type=str)
 @click.option(
     "--output",
     type=click.Choice(["text", "json"]),
@@ -39,35 +39,51 @@ def cli():
     "policy_path",
     type=click.Path(exists=True, dir_okay=False),
     default=None,
-    help="Path to a policy YAML file. Defaults to the bundled nginx policy.",
+    help="Path to a policy YAML file. Defaults to policies/{target}.yaml.",
 )
-@click.option("--service", default="nginx", help="systemd service name to inspect.")
-@click.option("--config-path", default=None, help="Path to nginx.conf.")
-@click.option("--certificate-path", default=None, help="Path to the TLS certificate.")
-@click.option("--private-key-path", default=None, help="Path to the TLS private key.")
+@click.option(
+    "-a",
+    "--arg",
+    "args",
+    multiple=True,
+    help="Key-value pair to pass to providers (e.g. -a config_path=/etc/nginx/nginx.conf)",
+)
+@click.option(
+    "--host",
+    type=str,
+    default=None,
+    help="Target host to run remote diagnostics via SSH (e.g. prod-web-01).",
+)
 @click.option("--metrics-file", default=None, help="Path to write Prometheus textfile metrics (e.g. ./evidencetool.prom)")
-def diagnose(
+def diagnose_cmd(
     target: str,
     output: str,
     policy_path: str | None,
-    service: str,
-    config_path: str | None,
-    certificate_path: str | None,
-    private_key_path: str | None,
+    args: tuple[str, ...],
+    host: str | None,
     metrics_file: str | None,
 ):
-    """Diagnose an incident for TARGET (currently only 'nginx' is supported)."""
-    policy = load_policy(policy_path or DEFAULT_POLICY_PATH)
+    """Diagnose an incident for TARGET."""
+    if not policy_path:
+        policy_path = str(DEFAULT_POLICY_DIR / f"{target}.yaml")
+        if not Path(policy_path).exists():
+            click.echo(f"Error: Policy file {policy_path} not found. Please provide one with --policy.", err=True)
+            sys.exit(1)
+            
+    policy = load_policy(policy_path)
 
-    kwargs = {"service": service}
-    if config_path:
-        kwargs["config_path"] = config_path
-    if certificate_path:
-        kwargs["certificate_path"] = certificate_path
-    if private_key_path:
-        kwargs["private_key_path"] = private_key_path
+    context = {}
+    if host:
+        context["host"] = host
+        
+    for arg in args:
+        if "=" in arg:
+            k, v = arg.split("=", 1)
+            context[k] = v
+        else:
+            click.echo(f"Warning: Ignoring malformed argument '{arg}' (expected key=value)", err=True)
 
-    result = diagnose_nginx(policy, **kwargs)
+    result = diagnose(target, policy, context)
     
     if metrics_file:
         from evidencetool.observability.metrics import write_metrics

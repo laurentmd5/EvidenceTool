@@ -13,27 +13,35 @@ import os
 from datetime import datetime, timezone
 
 from evidencetool.models.observation import Observation
-from evidencetool.providers._shell import run_command
+from evidencetool.providers._shell import run_command, file_exists
+from evidencetool.providers.base import ProviderContext
+from evidencetool.providers.registry import provider
 
 COLLECTOR = "tls_provider"
+DEFAULT_CERT_PATH = "/etc/letsencrypt/live/example.com/fullchain.pem"
+DEFAULT_KEY_PATH = "/etc/letsencrypt/live/example.com/privkey.pem"
 
 
 def _now():
     return datetime.now(timezone.utc)
 
 
+@provider("tls")
 class TLSProvider:
-    def collect(self, certificate_path: str, private_key_path: str) -> list[Observation]:
+    def collect(self, context: ProviderContext) -> list[Observation]:
+        certificate_path = context.get("certificate_path", DEFAULT_CERT_PATH)
+        private_key_path = context.get("private_key_path", DEFAULT_KEY_PATH)
+        host = context.get("host", None)
         return [
-            self._certificate_exists(certificate_path),
-            self._certificate_valid(certificate_path),
-            self._private_key_exists(private_key_path),
-            self._key_matches_certificate(certificate_path, private_key_path),
+            self._certificate_exists(certificate_path, host),
+            self._certificate_valid(certificate_path, host),
+            self._private_key_exists(private_key_path, host),
+            self._key_matches_certificate(certificate_path, private_key_path, host),
         ]
 
-    def _certificate_exists(self, certificate_path: str) -> Observation:
-        method = f"os.path.exists({certificate_path})"
-        exists = os.path.exists(certificate_path)
+    def _certificate_exists(self, certificate_path: str, host: str | None) -> Observation:
+        method = f"file_exists({certificate_path})"
+        exists = file_exists(certificate_path, host=host)
         status = "PASS" if exists else "FAIL"
         message = (
             f"Certificate found at {certificate_path}"
@@ -49,12 +57,13 @@ class TLSProvider:
             value={"status": status, "path": certificate_path},
             message=message,
             observed_at=_now(),
+            host=host,
         )
 
-    def _certificate_valid(self, certificate_path: str) -> Observation:
+    def _certificate_valid(self, certificate_path: str, host: str | None) -> Observation:
         method = f"openssl x509 -in {certificate_path} -noout -checkend 0"
 
-        if not os.path.exists(certificate_path):
+        if not file_exists(certificate_path, host=host):
             return Observation(
                 id="tls.certificate_valid",
                 source="tls",
@@ -64,10 +73,12 @@ class TLSProvider:
                 value={"status": "UNKNOWN"},
                 message="Cannot check validity: certificate file does not exist",
                 observed_at=_now(),
+                host=host,
             )
 
         result = run_command(
-            ["openssl", "x509", "-in", certificate_path, "-noout", "-checkend", "0"]
+            ["openssl", "x509", "-in", certificate_path, "-noout", "-checkend", "0"],
+            host=host
         )
 
         if not result.ran:
@@ -88,11 +99,12 @@ class TLSProvider:
             value={"status": status},
             message=message,
             observed_at=_now(),
+            host=host,
         )
 
-    def _private_key_exists(self, private_key_path: str) -> Observation:
-        method = f"os.path.exists({private_key_path})"
-        exists = os.path.exists(private_key_path)
+    def _private_key_exists(self, private_key_path: str, host: str | None) -> Observation:
+        method = f"file_exists({private_key_path})"
+        exists = file_exists(private_key_path, host=host)
         status = "PASS" if exists else "FAIL"
         message = (
             f"Private key found at {private_key_path}"
@@ -108,12 +120,13 @@ class TLSProvider:
             value={"status": status, "path": private_key_path},
             message=message,
             observed_at=_now(),
+            host=host,
         )
 
-    def _key_matches_certificate(self, certificate_path: str, private_key_path: str) -> Observation:
+    def _key_matches_certificate(self, certificate_path: str, private_key_path: str, host: str | None) -> Observation:
         method = "openssl x509/rsa -modulus"
 
-        if not os.path.exists(certificate_path) or not os.path.exists(private_key_path):
+        if not file_exists(certificate_path, host=host) or not file_exists(private_key_path, host=host):
             return Observation(
                 id="tls.key_matches_certificate",
                 source="tls",
@@ -123,13 +136,15 @@ class TLSProvider:
                 value={"status": "UNKNOWN"},
                 message="Cannot verify match: certificate or key file is missing",
                 observed_at=_now(),
+                host=host,
             )
 
-        cert_result = run_command(["openssl", "x509", "-noout", "-modulus", "-in", certificate_path])
-        key_result = run_command(["openssl", "rsa", "-noout", "-modulus", "-in", private_key_path])
+        cert_result = run_command(["openssl", "x509", "-noout", "-modulus", "-in", certificate_path], host=host)
+        key_result = run_command(["openssl", "rsa", "-noout", "-modulus", "-in", private_key_path], host=host)
 
         if not cert_result.ran or not key_result.ran:
-            status, message = "UNKNOWN", "Could not run openssl to extract moduli"
+            error_msg = cert_result.error if not cert_result.ran else key_result.error
+            status, message = "UNKNOWN", f"Could not run openssl to extract moduli: {error_msg}"
         elif cert_result.returncode != 0 or key_result.returncode != 0:
             status, message = "UNKNOWN", "Failed to extract modulus from certificate or key"
         else:
@@ -150,4 +165,5 @@ class TLSProvider:
             value={"status": status},
             message=message,
             observed_at=_now(),
+            host=host,
         )

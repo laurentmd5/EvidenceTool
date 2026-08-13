@@ -12,7 +12,9 @@ import os
 from datetime import datetime, timezone
 
 from evidencetool.models.observation import Observation
-from evidencetool.providers._shell import run_command
+from evidencetool.providers._shell import run_command, file_exists
+from evidencetool.providers.base import ProviderContext
+from evidencetool.providers.registry import provider
 
 COLLECTOR = "nginx_provider"
 DEFAULT_CONFIG_PATH = "/etc/nginx/nginx.conf"
@@ -22,16 +24,19 @@ def _now():
     return datetime.now(timezone.utc)
 
 
+@provider("nginx")
 class NginxProvider:
-    def collect(self, config_path: str = DEFAULT_CONFIG_PATH) -> list[Observation]:
+    def collect(self, context: ProviderContext) -> list[Observation]:
+        config_path = context.get("config_path", DEFAULT_CONFIG_PATH)
+        host = context.get("host", None)
         return [
-            self._config_exists(config_path),
-            self._config_valid(config_path),
+            self._config_exists(config_path, host),
+            self._config_valid(config_path, host),
         ]
 
-    def _config_exists(self, config_path: str) -> Observation:
-        method = f"os.path.exists({config_path})"
-        exists = os.path.exists(config_path)
+    def _config_exists(self, config_path: str, host: str | None) -> Observation:
+        method = f"file_exists({config_path})"
+        exists = file_exists(config_path, host=host)
         status = "PASS" if exists else "FAIL"
         message = (
             f"Configuration file found at {config_path}"
@@ -47,11 +52,12 @@ class NginxProvider:
             value={"status": status, "path": config_path},
             message=message,
             observed_at=_now(),
+            host=host,
         )
 
-    def _config_valid(self, config_path: str) -> Observation:
+    def _config_valid(self, config_path: str, host: str | None) -> Observation:
         method = f"nginx -t -c {config_path}"
-        result = run_command(["nginx", "-t", "-c", config_path])
+        result = run_command(["nginx", "-t", "-c", config_path], host=host)
 
         if not result.ran:
             status, message = "UNKNOWN", f"Could not run nginx: {result.error}"
@@ -69,4 +75,5 @@ class NginxProvider:
             value={"status": status, "stderr": result.stderr},
             message=message,
             observed_at=_now(),
+            host=host,
         )

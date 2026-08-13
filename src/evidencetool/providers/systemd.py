@@ -12,6 +12,8 @@ from datetime import datetime, timezone
 
 from evidencetool.models.observation import Observation
 from evidencetool.providers._shell import run_command
+from evidencetool.providers.base import ProviderContext
+from evidencetool.providers.registry import provider
 
 COLLECTOR = "systemd_provider"
 
@@ -20,16 +22,19 @@ def _now():
     return datetime.now(timezone.utc)
 
 
+@provider("systemd")
 class SystemdProvider:
-    def collect(self, service: str) -> list[Observation]:
+    def collect(self, context: ProviderContext) -> list[Observation]:
+        service = context.require("service")
+        host = context.get("host", None)
         return [
-            self._service_exists(service),
-            self._service_active(service),
+            self._service_exists(service, host),
+            self._service_active(service, host),
         ]
 
-    def _service_exists(self, service: str) -> Observation:
+    def _service_exists(self, service: str, host: str | None) -> Observation:
         method = f"systemctl show {service}.service -p LoadState"
-        result = run_command(["systemctl", "show", f"{service}.service", "-p", "LoadState"])
+        result = run_command(["systemctl", "show", f"{service}.service", "-p", "LoadState"], host=host)
 
         if not result.ran:
             status, message = "UNKNOWN", f"Could not query systemd: {result.error}"
@@ -53,11 +58,12 @@ class SystemdProvider:
             value={"status": status, "raw": result.stdout},
             message=message,
             observed_at=_now(),
+            host=host,
         )
 
-    def _service_active(self, service: str) -> Observation:
+    def _service_active(self, service: str, host: str | None) -> Observation:
         method = f"systemctl is-active {service}"
-        result = run_command(["systemctl", "is-active", service])
+        result = run_command(["systemctl", "is-active", service], host=host)
 
         if not result.ran:
             status, message = "UNKNOWN", f"Could not query systemd: {result.error}"
@@ -79,4 +85,5 @@ class SystemdProvider:
             value={"status": status, "raw": result.stdout},
             message=message,
             observed_at=_now(),
+            host=host,
         )

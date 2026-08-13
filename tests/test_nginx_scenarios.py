@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from evidencetool.diagnose import diagnose_nginx
+from evidencetool.diagnose import diagnose
 from evidencetool.models.decision import DecisionStatus
 from evidencetool.models.policy import EvidenceRequirement, OnUnknown, Policy, RiskLevel
 from evidencetool.recommendation import recommend
@@ -96,10 +96,13 @@ def _gen_cert(tmp_path: Path, *, expired: bool = False) -> tuple[Path, Path]:
 
 
 def test_scenario_certificate_missing(tmp_path, policy):
-    result = diagnose_nginx(
+    result = diagnose(
+        "nginx",
         policy,
-        certificate_path=str(tmp_path / "does_not_exist.pem"),
-        private_key_path=str(tmp_path / "does_not_exist_key.pem"),
+        context={
+            "certificate_path": str(tmp_path / "does_not_exist.pem"),
+            "private_key_path": str(tmp_path / "does_not_exist_key.pem"),
+        }
     )
     assert result.decision.status == DecisionStatus.BLOCK
     assert "tls.certificate_exists" in result.decision.blocking_evidence
@@ -107,7 +110,7 @@ def test_scenario_certificate_missing(tmp_path, policy):
 
 def test_scenario_certificate_expired(tmp_path, policy):
     cert, key = _gen_cert(tmp_path, expired=True)
-    result = diagnose_nginx(policy, certificate_path=str(cert), private_key_path=str(key))
+    result = diagnose("nginx", policy, context={"certificate_path": str(cert), "private_key_path": str(key)})
     assert result.decision.status == DecisionStatus.BLOCK
     assert "tls.certificate_valid" in result.decision.blocking_evidence
 
@@ -132,10 +135,13 @@ def test_scenario_certificate_key_mismatch(tmp_path, policy, monkeypatch):
         return original_run_command(args, **kwargs)
     monkeypatch.setattr("subprocess.run", mock_run_command)
 
-    result = diagnose_nginx(
+    result = diagnose(
+        "nginx",
         policy,
-        certificate_path=str(cert1),
-        private_key_path=str(key2),
+        context={
+            "certificate_path": str(cert1),
+            "private_key_path": str(key2),
+        }
     )
     assert result.decision.status == DecisionStatus.BLOCK
     assert "tls.key_matches_certificate" in result.decision.blocking_evidence
@@ -156,7 +162,10 @@ def test_scenario_valid_certificate_allows(tmp_path, policy, monkeypatch):
         return original_run_command(args, **kwargs)
     monkeypatch.setattr("subprocess.run", mock_run_command)
 
-    result = diagnose_nginx(policy, certificate_path=str(cert), private_key_path=str(key))
+    result = diagnose("nginx", policy, context={"certificate_path": str(cert), "private_key_path": str(key)})
+    print("BLOCKING EVIDENCE:", result.decision.blocking_evidence)
+    for e in result.evidence:
+        print(f"{e.id}: {e.observation.value}")
     assert result.decision.status == DecisionStatus.ALLOW
 
 
@@ -177,7 +186,7 @@ def test_scenario_disk_full_blocks(tmp_path, policy, monkeypatch):
     _ntuple_diskusage = namedtuple('usage', 'total used free')
     monkeypatch.setattr("shutil.disk_usage", lambda _: _ntuple_diskusage(100, 100, 0))
 
-    result = diagnose_nginx(policy_with_disk, certificate_path=str(cert), private_key_path=str(key))
+    result = diagnose("nginx", policy_with_disk, context={"certificate_path": str(cert), "private_key_path": str(key)})
     assert result.decision.status == DecisionStatus.BLOCK
     assert "filesystem.disk_space_available" in result.decision.blocking_evidence
 
@@ -212,7 +221,7 @@ def test_scenario_port_conflict(tmp_path, policy, monkeypatch):
         
     monkeypatch.setattr("subprocess.run", mock_run_command)
 
-    result = diagnose_nginx(policy_with_nginx, certificate_path=str(cert), private_key_path=str(key))
+    result = diagnose("nginx", policy_with_nginx, context={"certificate_path": str(cert), "private_key_path": str(key)})
     assert result.decision.status == DecisionStatus.BLOCK
     assert "nginx.config_valid" in result.decision.blocking_evidence
     
@@ -237,7 +246,7 @@ def test_scenario_permission_problem(tmp_path, policy, monkeypatch):
         return original_run_command(args, **kwargs)
     monkeypatch.setattr("subprocess.run", mock_run_command)
     
-    result = diagnose_nginx(policy, certificate_path=str(cert), private_key_path=str(key))
+    result = diagnose("nginx", policy, context={"certificate_path": str(cert), "private_key_path": str(key)})
     assert result.decision.status == DecisionStatus.BLOCK
     assert "tls.certificate_valid" in result.decision.blocking_evidence
 
@@ -246,15 +255,21 @@ def test_scenario_permission_problem(tmp_path, policy, monkeypatch):
 
 
 def test_06_recommendation_changes_decision_unchanged_e2e(tmp_path, policy):
-    result_a = diagnose_nginx(
+    result_a = diagnose(
+        "nginx",
         policy,
-        certificate_path=str(tmp_path / "missing.pem"),
-        private_key_path=str(tmp_path / "missing_key.pem"),
+        context={
+            "certificate_path": str(tmp_path / "missing.pem"),
+            "private_key_path": str(tmp_path / "missing_key.pem"),
+        }
     )
-    result_b = diagnose_nginx(
+    result_b = diagnose(
+        "nginx",
         policy,
-        certificate_path=str(tmp_path / "missing.pem"),
-        private_key_path=str(tmp_path / "missing_key.pem"),
+        context={
+            "certificate_path": str(tmp_path / "missing.pem"),
+            "private_key_path": str(tmp_path / "missing_key.pem"),
+        }
     )
     # Same inputs -> same decision, independent of recommendation text
     # (which is regenerated fresh each call but never fed back in).
@@ -282,6 +297,6 @@ def test_07_full_stack_normal_evaluation_allows(tmp_path, policy, monkeypatch):
         return original_run_command(args, **kwargs)
     monkeypatch.setattr("subprocess.run", mock_run_command)
 
-    result = diagnose_nginx(policy, certificate_path=str(cert), private_key_path=str(key))
+    result = diagnose("nginx", policy, context={"certificate_path": str(cert), "private_key_path": str(key)})
     assert result.decision.status == DecisionStatus.ALLOW
     assert result.decision.blocking_evidence == []

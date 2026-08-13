@@ -35,10 +35,6 @@ from evidencetool.models.decision import Decision
 from evidencetool.models.evidence import Evidence
 from evidencetool.models.incident import Incident
 from evidencetool.models.policy import Policy
-from evidencetool.providers.filesystem import FilesystemProvider
-from evidencetool.providers.nginx import NginxProvider
-from evidencetool.providers.systemd import SystemdProvider
-from evidencetool.providers.tls import TLSProvider
 from evidencetool.recommendation import recommend
 
 from evidencetool.observability.metrics import MetricsData
@@ -47,11 +43,6 @@ import time
 import logging
 
 logger = logging.getLogger(__name__)
-
-DEFAULT_SERVICE = "nginx"
-DEFAULT_NGINX_CONFIG = "/etc/nginx/nginx.conf"
-DEFAULT_CERT_PATH = "/etc/letsencrypt/live/example.com/fullchain.pem"
-DEFAULT_KEY_PATH = "/etc/letsencrypt/live/example.com/privkey.pem"
 
 
 @dataclass(frozen=True)
@@ -64,37 +55,65 @@ class DiagnosisResult:
     metrics: MetricsData
 
 
-def diagnose_nginx(
+def diagnose(
+    target: str,
     policy: Policy,
-    *,
-    service: str = DEFAULT_SERVICE,
-    config_path: str = DEFAULT_NGINX_CONFIG,
-    certificate_path: str = DEFAULT_CERT_PATH,
-    private_key_path: str = DEFAULT_KEY_PATH,
+    context: dict[str, str],
 ) -> DiagnosisResult:
+    from evidencetool.providers.base import ProviderContext
+    from evidencetool.providers.registry import get_provider, load_all_providers
+
+    # Ensure all built-in providers are registered
+    load_all_providers()
+
     m = MetricsData()
     start_total = time.time()
     
-    incident = Incident(id=f"inc_{uuid.uuid4().hex[:8]}", type="nginx_start_failure")
+    incident = Incident(id=f"inc_{uuid.uuid4().hex[:8]}", type=f"{target}_start_failure")
 
     observations = []
     
-    t0 = time.time()
-    observations += SystemdProvider().collect(service)
-    m.provider_durations["systemd"] = time.time() - t0
-    
-    t0 = time.time()
-    observations += NginxProvider().collect(config_path)
-    m.provider_durations["nginx"] = time.time() - t0
-    
-    t0 = time.time()
-    observations += TLSProvider().collect(certificate_path, private_key_path)
-    m.provider_durations["tls"] = time.time() - t0
-    
-    t0 = time.time()
-    observations += FilesystemProvider().collect()
-    m.provider_durations["filesystem"] = time.time() - t0
+    # 1. Determine which provider namespaces are needed from the policy.
+    # Evidence IDs are typically "namespace.check_name" (e.g. "nginx.config_valid").
+    needed_namespaces = set()
+    for req in policy.required_evidence:
+        parts = req.id.split(".")
+        if len(parts) > 1:
+            needed_namespaces.add(parts[0])
+            
+    # 2. Instantiate and run only the needed providers
+    provider_context = ProviderContext(context)
+    for namespace in needed_namespaces:
+        t0 = time.time()
+        try:
+            provider_instance = get_provider(namespace)
+            observations += provider_instance.collect(provider_context)
+        except Exception as exc:
+            import traceback
+            from datetime import datetime, timezone
+            from evidencetool.models.observation import Observation
+            
+            logger.error(f"Provider '{namespace}' execution failed: {exc}\n{traceback.format_exc()}")
+            
+            # Emit a synthetic observation for every requested evidence in this namespace
+            failed_ids = [req.id for req in policy.required_evidence if req.id.startswith(f"{namespace}.")]
+            
+            for req_id in failed_ids:
+                observations.append(
+                    Observation(
+                        id=req_id,
+                        source=namespace,
+                        category="system",
+                        collector="diagnose_engine",
+                        method="provider_execution",
+                        value={"status": "UNKNOWN"},
+                        message=f"Provider execution failed:\n{exc}",
+                        observed_at=datetime.now(timezone.utc),
+                    )
+                )
+        m.provider_durations[namespace] = time.time() - t0
 
+    # 3. Evaluate observations
     t0 = time.time()
     max_ages = {
         req.id: req.max_age for req in policy.required_evidence if req.max_age is not None
@@ -105,13 +124,14 @@ def diagnose_nginx(
     for e in evidence:
         m.evidence_status_counts[e.status] += 1
 
+    # 4. Decide
     t0 = time.time()
     decision = decide(evidence, policy)
     m.decision_duration = time.time() - t0
     
     m.decision_status = decision.status
 
-    # Integrity Check
+    # 5. Integrity Check
     integrity_result = validate_decision_integrity(decision, policy, evidence)
     if not integrity_result.is_valid:
         m.integrity_violation = 1

@@ -7,10 +7,13 @@ Checks:
 
 from __future__ import annotations
 
-import shutil
+import os
 from datetime import datetime, timezone
 
 from evidencetool.models.observation import Observation
+from evidencetool.providers.base import ProviderContext
+from evidencetool.providers.registry import provider
+from evidencetool.providers._shell import get_free_disk_space
 
 COLLECTOR = "filesystem_provider"
 DEFAULT_MIN_FREE_BYTES = 100 * 1024 * 1024  # 100 MB
@@ -20,17 +23,19 @@ def _now():
     return datetime.now(timezone.utc)
 
 
+@provider("filesystem")
 class FilesystemProvider:
-    def collect(
-        self, path: str = "/", min_free_bytes: int = DEFAULT_MIN_FREE_BYTES
-    ) -> list[Observation]:
-        return [self._disk_space_available(path, min_free_bytes)]
+    def collect(self, context: ProviderContext) -> list[Observation]:
+        path = context.get("path", "/")
+        min_free_bytes = int(context.get("min_free_bytes", str(DEFAULT_MIN_FREE_BYTES)))
+        host = context.get("host", None)
+        return [self._disk_space_available(path, min_free_bytes, host)]
 
-    def _disk_space_available(self, path: str, min_free_bytes: int) -> Observation:
-        method = f"shutil.disk_usage({path})"
-        try:
-            usage = shutil.disk_usage(path)
-        except OSError as exc:
+    def _disk_space_available(self, path: str, min_free_bytes: int, host: str | None) -> Observation:
+        method = f"get_free_disk_space({path})"
+        free_bytes = get_free_disk_space(path, host=host)
+        
+        if free_bytes is None:
             return Observation(
                 id="filesystem.disk_space_available",
                 source="filesystem",
@@ -38,12 +43,13 @@ class FilesystemProvider:
                 collector=COLLECTOR,
                 method=method,
                 value={"status": "UNKNOWN"},
-                message=f"Could not read disk usage for {path}: {exc}",
+                message=f"Could not read disk usage for {path}",
                 observed_at=_now(),
+                host=host,
             )
 
-        status = "PASS" if usage.free >= min_free_bytes else "FAIL"
-        free_mb = usage.free / (1024 * 1024)
+        status = "PASS" if free_bytes >= min_free_bytes else "FAIL"
+        free_mb = free_bytes / (1024 * 1024)
         threshold_mb = min_free_bytes / (1024 * 1024)
         message = (
             f"{free_mb:.0f}MB free (threshold {threshold_mb:.0f}MB)"
@@ -57,7 +63,8 @@ class FilesystemProvider:
             category="disk",
             collector=COLLECTOR,
             method=method,
-            value={"status": status, "free_bytes": usage.free},
+            value={"status": status, "free_bytes": free_bytes},
             message=message,
             observed_at=_now(),
+            host=host,
         )
