@@ -12,6 +12,12 @@ dependencies = [
     "click>=8.1",
 ]
 
+[project.optional-dependencies]
+test = [
+    "pytest>=7.0",
+    "cryptography>=41.0.0",
+]
+
 [project.scripts]
 evidencetool = "evidencetool.cli.main:cli"
 
