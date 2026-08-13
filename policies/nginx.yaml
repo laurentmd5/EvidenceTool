@@ -1,0 +1,25 @@
+version: "1"
+
+action: restart_nginx
+
+risk: LOW
+
+required_evidence:
+  - id: nginx.config_valid
+    on_unknown: BLOCK
+  - id: tls.certificate_exists
+    on_unknown: BLOCK
+  - id: tls.certificate_valid
+    on_unknown: BLOCK
+  - id: tls.private_key_exists
+    on_unknown: BLOCK
+  - id: tls.key_matches_certificate
+    on_unknown: BLOCK
+  - id: systemd.service_exists
+    on_unknown: BLOCK
+  - id: systemd.service_active
+    on_unknown: IGNORE
+  - id: filesystem.disk_space_available
+    on_unknown: IGNORE
+
+human_approval: false
