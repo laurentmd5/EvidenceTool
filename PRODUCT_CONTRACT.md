@@ -1,8 +1,8 @@
 # EvidenceTool — PRODUCT_CONTRACT.md
 
-**Version:** 1.0 (MVP contract)
-**Status:** Locked for V0.1 vertical slice implementation
-**Scope:** This document defines the minimal functional contract that the V0.1 codebase must respect. It is intentionally narrow — not a full PRD, not a technical specification, not an architecture document. Those come later, informed by the working vertical slice.
+**Version:** 2.0 (V0.2 contract)
+**Status:** Locked for V0.2 vertical slice implementation
+**Scope:** This document defines the minimal functional contract that the V0.2 codebase must respect.
 
 ---
 
@@ -14,13 +14,13 @@ EvidenceTool separates **observation**, **recommendation**, **authorization**, a
 
 ---
 
-## 1. Scope V0.1
+## 1. Scope V0.2
 
 **Definition:**
 
 > A read-only operational evidence and decision tool for diagnosing production incidents and determining whether a proposed remediation action is sufficiently justified by available evidence.
 
-**Vertical slice — the only thing V0.1 must prove end-to-end:**
+**Vertical slice — the only thing V0.2 must prove end-to-end:**
 
 ```
 Nginx incident
@@ -56,7 +56,8 @@ Every observation produced by a provider must conform to this structure:
   },
   "message": "Certificate is valid and not expired",
   "observed_at": "2026-08-12T08:30:00Z",
-  "collected_at": "2026-08-12T08:30:01Z"
+  "collected_at": "2026-08-12T08:30:01Z",
+  "host": "prod-web-01"
 }
 ```
 
@@ -71,6 +72,7 @@ Every observation produced by a provider must conform to this structure:
 | `message` | string | yes | Human-readable explanation of what was observed |
 | `observed_at` | ISO 8601 timestamp | yes | When the underlying fact was true |
 | `collected_at` | ISO 8601 timestamp | yes | When EvidenceTool actually ran the collector |
+| `host` | string | no | Target host if diagnostic was run remotely (Agentless SSH) |
 
 ### 2.1 Freshness
 
@@ -291,7 +293,8 @@ The JSON is the real contract. The CLI terminal output is a renderer over this J
         },
         "message": "nginx -t failed: nginx: [emerg] open() \"/etc/nginx/nginx.conf\" failed",
         "observed_at": "2026-08-12T08:30:00Z",
-        "collected_at": "2026-08-12T08:30:01Z"
+        "collected_at": "2026-08-12T08:30:01Z",
+        "host": "prod-web-01"
       },
       "is_stale": false
     },
@@ -304,14 +307,15 @@ The JSON is the real contract. The CLI terminal output is a renderer over this J
         "source": "tls",
         "category": "certificate",
         "collector": "tls_provider",
-        "method": "os.path.exists(/etc/letsencrypt/live/example.com/fullchain.pem)",
+        "method": "file_exists(/etc/letsencrypt/live/example.com/fullchain.pem)",
         "value": {
           "status": "PASS",
           "path": "/etc/letsencrypt/live/example.com/fullchain.pem"
         },
         "message": "Certificate found at /etc/letsencrypt/live/example.com/fullchain.pem",
         "observed_at": "2026-08-12T08:30:00Z",
-        "collected_at": "2026-08-12T08:30:01Z"
+        "collected_at": "2026-08-12T08:30:01Z",
+        "host": "prod-web-01"
       },
       "is_stale": false
     }
@@ -361,7 +365,7 @@ Blocking evidence:
 
 ## 9. CLI Contract
 
-V0.1 stays intentionally small — three invocation shapes:
+V0.2 stays intentionally small — four invocation shapes:
 
 ```bash
 # Human-readable diagnosis
@@ -372,19 +376,21 @@ evidencetool diagnose nginx --output json
 
 # Explicit policy file
 evidencetool diagnose nginx --policy policies/nginx.yaml
+
+# Remote Agentless execution
+evidencetool diagnose nginx --host prod-web-01
 ```
 
-No other subcommands are in scope for V0.1.
+No other subcommands are in scope for V0.2.
 
 ---
 
 ## 10. Known limitations
 
-V0.1 explicitly does **not**:
+V0.2 explicitly does **not**:
 
 - modify the system in any way;
 - automatically restart or remediate anything;
-- connect via SSH to remote targets;
 - perform auto-remediation of any kind;
 - support Docker or Kubernetes (planned for later versions, same evidence/decision engine);
 - use an LLM anywhere in the evidence, risk, or decision path;

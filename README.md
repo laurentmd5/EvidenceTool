@@ -1,4 +1,4 @@
-# EvidenceTool (V0.1 — vertical slice)
+# EvidenceTool (V0.2 + Agentless SSH)
 
 > EvidenceTool does not automate actions first. It makes operational decisions explainable first.
 
@@ -6,11 +6,10 @@ A read-only operational evidence and decision tool for diagnosing production
 incidents and determining whether a proposed remediation action is
 sufficiently justified by available evidence.
 
-This is the **first vertical slice**: a single flow, end to end, scoped to
-one incident — an Nginx service that fails to start — and one proposed
-action — `restart_nginx`. No other environment (Docker, Kubernetes), no
-LLM, no execution. See `PRODUCT_CONTRACT.md` for the full functional
-contract this code implements.
+This is the **second vertical slice (V0.2)**, which introduces:
+1. **Dynamic Architecture**: Providers are now auto-discovered without coupling the Orchestrator.
+2. **Explicit Fail-Closed**: Any provider execution error (e.g. timeout, missing binary) yields a synthetic `UNKNOWN` observation rather than crashing the tool or generating a false `FAIL`.
+3. **Agentless SSH**: Run diagnostics against remote production servers via native SSH, without installing anything on the target.
 
 ## The flow
 
@@ -18,10 +17,13 @@ contract this code implements.
 Incident
    │
    ▼
-Observation Collection   (systemd, nginx, tls, filesystem providers)
+Dynamic Provider Registry (Auto-discovered plugins)
    │
    ▼
-Evidence Evaluation      (PASS / FAIL / UNKNOWN, freshness applied)
+Observation Collection   (Local OR Remote via Agentless SSH)
+   │
+   ▼
+Evidence Evaluation      (PASS / FAIL / UNKNOWN, freshness applied, errors caught)
    │
    ▼
 Policy Evaluation        (YAML policy, per-evidence on_unknown rules)
@@ -44,8 +46,11 @@ pip install -e . --break-system-packages   # or use a virtualenv
 ## Usage
 
 ```bash
-# Human-readable diagnosis, using the bundled default policy
+# Human-readable diagnosis, local execution
 evidencetool diagnose nginx
+
+# Agentless SSH: Diagnose a remote server (e.g. from your bastion)
+evidencetool diagnose nginx --host prod-web-01
 
 # Machine-readable output (the real contract — see PRODUCT_CONTRACT.md Section 8)
 evidencetool diagnose nginx --output json
@@ -55,10 +60,11 @@ evidencetool diagnose nginx --policy policies/nginx.yaml
 
 # Point at specific paths and output metrics
 evidencetool diagnose nginx \
-  --service nginx \
-  --config-path /etc/nginx/nginx.conf \
-  --certificate-path /etc/letsencrypt/live/example.com/fullchain.pem \
-  --private-key-path /etc/letsencrypt/live/example.com/privkey.pem \
+  --host prod-web-01 \
+  -a service=nginx \
+  -a config_path=/etc/nginx/nginx.conf \
+  -a certificate_path=/etc/letsencrypt/live/example.com/fullchain.pem \
+  -a private_key_path=/etc/letsencrypt/live/example.com/privkey.pem \
   --metrics-file ./evidencetool.prom
 ```
 
@@ -99,11 +105,7 @@ before retrying.
 python -m pytest tests/ -v
 ```
 
-31 tests: the 9 contract tests from `PRODUCT_CONTRACT.md` (decision
-precedence, on_unknown handling, staleness, recommendation/decision
-separation), evaluator and policy-loading unit tests, and end-to-end
-scenarios run against real generated certificates (missing cert, expired
-cert, missing key, valid cert, disk full, port conflict, permission denied, mismatched keys).
+40 tests: the 9 contract tests from `PRODUCT_CONTRACT.md`, evaluator and policy-loading unit tests, end-to-end scenarios, V0.2 architectural validation tests (dynamic registry, context propagation), and the Agentless SSH transport tests (error classification, multiplexing).
 
 ## Writing a policy
 
@@ -126,8 +128,8 @@ Decision precedence is fixed and non-configurable:
 `BLOCK > HUMAN_REVIEW > ALLOW`. A blocking evidence item always wins,
 regardless of risk level or `human_approval`.
 
-## Known limitations (V0.1)
+## Known limitations (V0.2)
 
-No execution, no SSH, no Docker/Kubernetes, no LLM, no dashboard, no
+No execution, no Docker/Kubernetes yet (planned), no LLM, no dashboard, no
 aggregate scoring, no autonomous root-cause analysis. See
 `PRODUCT_CONTRACT.md` Section 10 for the full list and rationale.
