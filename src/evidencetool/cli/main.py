@@ -54,6 +54,12 @@ def cli() -> None:
     default=None,
     help="Target host to run remote diagnostics via SSH (e.g. prod-web-01).",
 )
+@click.option(
+    "--catalog",
+    type=click.Path(exists=True, dir_okay=False),
+    default=None,
+    help="Path to a catalog YAML file containing situation signatures.",
+)
 @click.option("--metrics-file", default=None, help="Path to write Prometheus textfile metrics (e.g. ./evidencetool.prom)")
 def diagnose_cmd(  # noqa: C901
     target: str,
@@ -62,6 +68,7 @@ def diagnose_cmd(  # noqa: C901
     args: tuple[str, ...],
     host: str | None,
     metrics_file: str | None,
+    catalog: str | None,
 ) -> None:
     """Diagnose an incident for TARGET."""
     if not policy_path:
@@ -71,6 +78,11 @@ def diagnose_cmd(  # noqa: C901
             sys.exit(1)
 
     policy = load_policy(policy_path)
+    
+    catalog_situations = None
+    if catalog:
+        from evidencetool.diagnostic.loader import load_catalog
+        catalog_situations = load_catalog(catalog)
 
     context = {}
     if host:
@@ -93,7 +105,7 @@ def diagnose_cmd(  # noqa: C901
         else:
             click.echo(f"Warning: Ignoring malformed argument '{arg}' (expected key=value)", err=True)
 
-    result = diagnose(target, policy, context)
+    result = diagnose(target, policy, context, catalog=catalog_situations)
 
     if metrics_file:
         from evidencetool.observability.metrics import write_metrics

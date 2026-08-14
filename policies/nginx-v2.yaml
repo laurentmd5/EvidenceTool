@@ -1,0 +1,34 @@
+version: "1.0"
+action: "restart_nginx"
+risk: "LOW"
+schema: "v2"
+
+allow:
+  - "NGINX_SERVICE_DOWN"
+
+blocked_by:
+  - "NGINX_CONFIG_INVALID"
+  - "TLS_CERTIFICATE_MISSING"
+  - "TLS_CERTIFICATE_EXPIRED"
+  - "TLS_KEY_MISSING"
+  - "TLS_KEY_MISMATCH"
+  - "NGINX_SERVICE_NOT_INSTALLED"
+  - "DISK_FULL"
+
+required_evidence:
+  - id: nginx.config_valid
+    on_unknown: BLOCK
+  - id: tls.certificate_exists
+    on_unknown: BLOCK
+  - id: tls.certificate_valid
+    on_unknown: BLOCK
+  - id: tls.private_key_exists
+    on_unknown: BLOCK
+  - id: tls.key_matches_certificate
+    on_unknown: BLOCK
+  - id: systemd.service_exists
+    on_unknown: BLOCK
+  - id: systemd.service_active
+    on_unknown: IGNORE
+  - id: filesystem.disk_space_available
+    on_unknown: IGNORE
