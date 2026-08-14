@@ -31,7 +31,7 @@ pipeline {
                 sh '''
                     python -m venv /tmp/venv
                     . /tmp/venv/bin/activate
-                    pip install --no-cache-dir -e . pytest
+                    pip install --no-cache-dir -e ".[test]"
                 '''
             }
         }
