@@ -4,10 +4,12 @@ Enables dynamic discovery of providers based on their namespaces.
 """
 
 from __future__ import annotations
-from typing import Callable, Type
+
 from dataclasses import dataclass
+from typing import Callable, Type
 
 from evidencetool.providers.base import Provider
+
 
 @dataclass(frozen=True)
 class ProviderLoadError:
@@ -41,7 +43,7 @@ def get_provider(namespace: str) -> Provider:
     """
     if namespace not in _PROVIDERS:
         raise ValueError(f"No provider registered for namespace: '{namespace}'")
-    
+
     cls = _PROVIDERS[namespace]
     return cls()
 
@@ -53,6 +55,7 @@ def load_all_providers() -> None:
     """
     import importlib
     import pkgutil
+
     import evidencetool.providers
 
     package = evidencetool.providers

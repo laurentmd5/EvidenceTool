@@ -15,6 +15,7 @@ and `is_stale` is kept on the Evidence for transparency in output.
 
 from __future__ import annotations
 
+import typing
 from dataclasses import dataclass
 from enum import Enum
 
@@ -22,7 +23,7 @@ from evidencetool.models.observation import Observation
 
 
 class EvidenceStatus(str, Enum):
-    PASS = "PASS"
+    PASS = "PASS"  # nosec B105
     FAIL = "FAIL"
     UNKNOWN = "UNKNOWN"
 
@@ -38,7 +39,7 @@ class Evidence:
     def id(self) -> str:
         return self.observation.id
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, typing.Any]:
         return {
             "id": self.id,
             "status": self.status.value,

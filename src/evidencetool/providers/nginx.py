@@ -8,11 +8,10 @@ Checks:
 
 from __future__ import annotations
 
-import os
 from datetime import datetime, timezone
 
 from evidencetool.models.observation import Observation
-from evidencetool.providers._shell import run_command, file_exists
+from evidencetool.providers._shell import file_exists, run_command
 from evidencetool.providers.base import ProviderContext
 from evidencetool.providers.registry import provider
 
@@ -20,7 +19,7 @@ COLLECTOR = "nginx_provider"
 DEFAULT_CONFIG_PATH = "/etc/nginx/nginx.conf"
 
 
-def _now():
+def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
@@ -28,7 +27,7 @@ def _now():
 class NginxProvider:
     def collect(self, context: ProviderContext) -> list[Observation]:
         config_path = context.get("config_path", DEFAULT_CONFIG_PATH)
-        host = context.get("host", None)
+        host = context.get("host", "")
         return [
             self._config_exists(config_path, host),
             self._config_valid(config_path, host),

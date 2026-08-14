@@ -3,7 +3,8 @@ Base interface and context for EvidenceTool Providers.
 """
 
 from __future__ import annotations
-from typing import Protocol, Mapping
+
+from typing import Mapping, Protocol
 
 from evidencetool.models.observation import Observation
 
@@ -20,7 +21,7 @@ class ProviderContext:
     def get(self, key: str, default: str = "") -> str:
         """Get a configuration value, returning `default` if not present."""
         return self._kwargs.get(key, default)
-        
+
     def require(self, key: str) -> str:
         """Get a configuration value, raising ValueError if missing."""
         if key not in self._kwargs:

@@ -13,6 +13,7 @@ traced back to the concrete check that produced it.
 
 from __future__ import annotations
 
+import typing
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -38,7 +39,7 @@ class Observation:
         reference = now or datetime.now(timezone.utc)
         return (reference - self.observed_at).total_seconds()
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, typing.Any]:
         return {
             "id": self.id,
             "source": self.source,

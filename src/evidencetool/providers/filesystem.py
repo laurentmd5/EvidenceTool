@@ -7,19 +7,18 @@ Checks:
 
 from __future__ import annotations
 
-import os
 from datetime import datetime, timezone
 
 from evidencetool.models.observation import Observation
+from evidencetool.providers._shell import get_free_disk_space
 from evidencetool.providers.base import ProviderContext
 from evidencetool.providers.registry import provider
-from evidencetool.providers._shell import get_free_disk_space
 
 COLLECTOR = "filesystem_provider"
 DEFAULT_MIN_FREE_BYTES = 100 * 1024 * 1024  # 100 MB
 
 
-def _now():
+def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
@@ -28,13 +27,13 @@ class FilesystemProvider:
     def collect(self, context: ProviderContext) -> list[Observation]:
         path = context.get("path", "/")
         min_free_bytes = int(context.get("min_free_bytes", str(DEFAULT_MIN_FREE_BYTES)))
-        host = context.get("host", None)
+        host = context.get("host", "")
         return [self._disk_space_available(path, min_free_bytes, host)]
 
     def _disk_space_available(self, path: str, min_free_bytes: int, host: str | None) -> Observation:
         method = f"get_free_disk_space({path})"
         free_bytes = get_free_disk_space(path, host=host)
-        
+
         if free_bytes is None:
             return Observation(
                 id="filesystem.disk_space_available",

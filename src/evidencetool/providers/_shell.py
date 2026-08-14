@@ -11,8 +11,9 @@ installed on the host it's inspecting.
 
 from __future__ import annotations
 
-import subprocess
 import os
+import shutil
+import subprocess
 from dataclasses import dataclass
 
 
@@ -43,13 +44,13 @@ def run_command(args: list[str], timeout: float = 5.0, host: str | None = None) 
         ] + args
 
     try:
-        proc = subprocess.run(
+        proc = subprocess.run( # nosec B603
             actual_args,
             capture_output=True,
             text=True,
             timeout=timeout,
         )
-        
+
         # Distinguish SSH transport errors (255) from business logic failures
         if host and proc.returncode == 255:
             return CommandResult(
@@ -59,7 +60,7 @@ def run_command(args: list[str], timeout: float = 5.0, host: str | None = None) 
                 stderr=proc.stderr.strip(),
                 error=f"SSH Transport Error: {proc.stderr.strip()}",
             )
-            
+
         return CommandResult(
             ran=True,
             returncode=proc.returncode,
@@ -83,7 +84,7 @@ def run_command(args: list[str], timeout: float = 5.0, host: str | None = None) 
         )
 
 
-import shutil
+
 
 def file_exists(path: str, host: str | None = None, timeout: float = 5.0) -> bool:
     """Check if a file exists, either locally or remotely."""
@@ -100,11 +101,11 @@ def get_free_disk_space(path: str, host: str | None = None, timeout: float = 5.0
             return shutil.disk_usage(path).free
         except OSError:
             return None
-            
+
     res = run_command(["df", "-B1", "--output=avail", path], timeout=timeout, host=host)
     if not res.ran or res.returncode != 0:
         return None
-        
+
     lines = res.stdout.strip().split("\n")
     if len(lines) >= 2:
         try:

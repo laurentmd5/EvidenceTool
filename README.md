@@ -40,7 +40,7 @@ Nothing in this codebase modifies the system it inspects.
 ## Install
 
 ```bash
-pip install -e . --break-system-packages   # or use a virtualenv
+pip install -e ".[dev,test]" --break-system-packages   # or use a virtualenv
 ```
 
 ## Usage
@@ -102,10 +102,17 @@ before retrying.
 ## Tests
 
 ```bash
-python -m pytest tests/ -v
+# Run tests with coverage
+pytest tests/ -v --cov=evidencetool --cov-report=term
+
+# Code Quality & Security (DevSecOps)
+ruff check src/ tests/
+mypy src/
+bandit -r src/ -c pyproject.toml
+pip-audit
 ```
 
-40 tests: the 9 contract tests from `PRODUCT_CONTRACT.md`, evaluator and policy-loading unit tests, end-to-end scenarios, V0.2 architectural validation tests (dynamic registry, context propagation), and the Agentless SSH transport tests (error classification, multiplexing).
+48 tests: the 9 contract tests from `PRODUCT_CONTRACT.md`, evaluator and policy-loading unit tests, end-to-end scenarios, V0.2 architectural validation tests (dynamic registry, context propagation), and the Agentless SSH transport tests (error classification, multiplexing). The pipeline includes full DevSecOps checks (SAST with Bandit, SCA with pip-audit, strict typing with Mypy, and linting with Ruff) maintaining 80% test coverage.
 
 ## Writing a policy
 

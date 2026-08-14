@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import subprocess
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
 from evidencetool.providers._shell import run_command
 
 
@@ -35,7 +34,7 @@ def test_ssh_transport_execution():
         assert result.ran is True
         assert result.returncode == 0
         assert result.stdout == "hello"
-        
+
         args = mock_run.call_args[0][0]
         assert args[0] == "ssh"
         assert "prod-web-01" in args

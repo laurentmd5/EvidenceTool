@@ -34,13 +34,13 @@ class MetricsData:
     )
 
 
-def write_metrics(metrics: MetricsData, output_path: str = "./evidencetool.prom"):
+def write_metrics(metrics: MetricsData, output_path: str = "./evidencetool.prom") -> None:
     lines = []
-    
+
     lines.append("# HELP evidencetool_last_run_success 1 if the run completed successfully and passed integrity validation.")
     lines.append("# TYPE evidencetool_last_run_success gauge")
     lines.append(f"evidencetool_last_run_success {1 if metrics.success else 0}")
-    
+
     lines.append("# HELP evidencetool_integrity_violation 1 if there was a decision integrity violation in the last run, 0 otherwise.")
     lines.append("# TYPE evidencetool_integrity_violation gauge")
     lines.append(f"evidencetool_integrity_violation {metrics.integrity_violation}")
@@ -70,15 +70,15 @@ def write_metrics(metrics: MetricsData, output_path: str = "./evidencetool.prom"
 
     lines.append("# HELP evidencetool_evidence Evidence status counts for the last run.")
     lines.append("# TYPE evidencetool_evidence gauge")
-    for status, count in metrics.evidence_status_counts.items():
-        lines.append(f"evidencetool_evidence{{status=\"{status.value}\"}} {count}")
+    for ev_status, count in metrics.evidence_status_counts.items():
+        lines.append(f"evidencetool_evidence{{status=\"{ev_status.value}\"}} {count}")
 
     lines.append("")  # Ensure trailing newline
 
     content = "\n".join(lines)
-    
+
     path = Path(output_path)
     if path.parent and str(path.parent) != ".":
         path.parent.mkdir(parents=True, exist_ok=True)
-        
+
     path.write_text(content, encoding="utf-8")

@@ -121,7 +121,7 @@ def test_scenario_certificate_key_mismatch(tmp_path, policy, monkeypatch):
     (tmp_path / "cert2").mkdir()
     cert1, key1 = _gen_cert(tmp_path / "cert1", expired=False)
     cert2, key2 = _gen_cert(tmp_path / "cert2", expired=False)
-    
+
     original_run_command = subprocess.run
     def mock_run_command(args, **kwargs):
         if "openssl" in args:
@@ -149,7 +149,7 @@ def test_scenario_certificate_key_mismatch(tmp_path, policy, monkeypatch):
 
 def test_scenario_valid_certificate_allows(tmp_path, policy, monkeypatch):
     cert, key = _gen_cert(tmp_path, expired=False)
-    
+
     # Mock openssl since it's missing on the test runner
     original_run_command = subprocess.run
     def mock_run_command(args, **kwargs):
@@ -181,7 +181,7 @@ def test_scenario_disk_full_blocks(tmp_path, policy, monkeypatch):
         human_approval=False,
     )
     cert, key = _gen_cert(tmp_path, expired=False)
-    
+
     # Mock shutil.disk_usage to return 0 free space
     _ntuple_diskusage = namedtuple('usage', 'total used free')
     monkeypatch.setattr("shutil.disk_usage", lambda _: _ntuple_diskusage(100, 100, 0))
@@ -193,8 +193,7 @@ def test_scenario_disk_full_blocks(tmp_path, policy, monkeypatch):
 
 def test_scenario_port_conflict(tmp_path, policy, monkeypatch):
     """Port conflict scenario testing the real message passing."""
-    from evidencetool.providers._shell import CommandResult
-    
+
     policy_with_nginx = Policy(
         version="1",
         action="restart_nginx",
@@ -204,9 +203,9 @@ def test_scenario_port_conflict(tmp_path, policy, monkeypatch):
         ],
         human_approval=False,
     )
-    
+
     cert, key = _gen_cert(tmp_path, expired=False)
-    
+
     # Mock run_command to fail when testing nginx config for port conflict
     original_run_command = subprocess.run
     def mock_run_command(args, **kwargs):
@@ -218,13 +217,13 @@ def test_scenario_port_conflict(tmp_path, policy, monkeypatch):
                 stderr="nginx: [emerg] bind() to 0.0.0.0:443 failed: address already in use"
             )
         return original_run_command(args, **kwargs)
-        
+
     monkeypatch.setattr("subprocess.run", mock_run_command)
 
     result = diagnose("nginx", policy_with_nginx, context={"certificate_path": str(cert), "private_key_path": str(key)})
     assert result.decision.status == DecisionStatus.BLOCK
     assert "nginx.config_valid" in result.decision.blocking_evidence
-    
+
     # Verify the message contains the realistic simulated output
     evidence_dict = {e.id: e for e in result.evidence}
     obs_message = evidence_dict["nginx.config_valid"].observation.message
@@ -233,7 +232,7 @@ def test_scenario_port_conflict(tmp_path, policy, monkeypatch):
 
 def test_scenario_permission_problem(tmp_path, policy, monkeypatch):
     cert, key = _gen_cert(tmp_path, expired=False)
-    
+
     # We mock os.path.exists to return False, or simulate a permission error.
     # The simplest is mocking exists to True but open/read failing, but our providers
     # mostly use os.path.exists for simplicity in V0.1. Let's just mock os.path.exists
@@ -245,7 +244,7 @@ def test_scenario_permission_problem(tmp_path, policy, monkeypatch):
             return Mock(returncode=1, stdout="", stderr="Permission denied")
         return original_run_command(args, **kwargs)
     monkeypatch.setattr("subprocess.run", mock_run_command)
-    
+
     result = diagnose("nginx", policy, context={"certificate_path": str(cert), "private_key_path": str(key)})
     assert result.decision.status == DecisionStatus.BLOCK
     assert "tls.certificate_valid" in result.decision.blocking_evidence
@@ -284,7 +283,7 @@ def test_06_recommendation_changes_decision_unchanged_e2e(tmp_path, policy):
 
 def test_07_full_stack_normal_evaluation_allows(tmp_path, policy, monkeypatch):
     cert, key = _gen_cert(tmp_path, expired=False)
-    
+
     # Mock openssl
     original_run_command = subprocess.run
     def mock_run_command(args, **kwargs):

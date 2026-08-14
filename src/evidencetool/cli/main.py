@@ -22,7 +22,7 @@ DEFAULT_POLICY_DIR = Path(__file__).resolve().parents[3] / "policies"
 
 
 @click.group()
-def cli():
+def cli() -> None:
     """EvidenceTool — evidence before action."""
 
 
@@ -55,21 +55,21 @@ def cli():
     help="Target host to run remote diagnostics via SSH (e.g. prod-web-01).",
 )
 @click.option("--metrics-file", default=None, help="Path to write Prometheus textfile metrics (e.g. ./evidencetool.prom)")
-def diagnose_cmd(
+def diagnose_cmd(  # noqa: C901
     target: str,
     output: str,
     policy_path: str | None,
     args: tuple[str, ...],
     host: str | None,
     metrics_file: str | None,
-):
+) -> None:
     """Diagnose an incident for TARGET."""
     if not policy_path:
         policy_path = str(DEFAULT_POLICY_DIR / f"{target}.yaml")
         if not Path(policy_path).exists():
             click.echo(f"Error: Policy file {policy_path} not found. Please provide one with --policy.", err=True)
             sys.exit(1)
-            
+
     policy = load_policy(policy_path)
 
     context = {}
@@ -81,11 +81,11 @@ def diagnose_cmd(
             click.echo(f"Error: Invalid host format '{host}'.", err=True)
             sys.exit(1)
         if host.startswith("-"):
-            click.echo(f"Error: Host cannot start with a hyphen.", err=True)
+            click.echo("Error: Host cannot start with a hyphen.", err=True)
             sys.exit(1)
-            
+
         context["host"] = host
-        
+
     for arg in args:
         if "=" in arg:
             k, v = arg.split("=", 1)
@@ -94,7 +94,7 @@ def diagnose_cmd(
             click.echo(f"Warning: Ignoring malformed argument '{arg}' (expected key=value)", err=True)
 
     result = diagnose(target, policy, context)
-    
+
     if metrics_file:
         from evidencetool.observability.metrics import write_metrics
         write_metrics(result.metrics, metrics_file)

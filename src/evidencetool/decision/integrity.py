@@ -24,7 +24,7 @@ class IntegrityResult:
     violations: list[str]
 
 
-def validate_decision_integrity(decision: Decision, policy: Policy, evidence: list[Evidence]) -> IntegrityResult:
+def validate_decision_integrity(decision: Decision, policy: Policy, evidence: list[Evidence]) -> IntegrityResult:  # noqa: C901
     violations = []
 
     # 1. Recommendation must not influence Decision. (This is structurally enforced
@@ -34,7 +34,7 @@ def validate_decision_integrity(decision: Decision, policy: Policy, evidence: li
     if decision.status == DecisionStatus.BLOCK:
         if not decision.blocking_evidence:
             violations.append("Decision is BLOCK but blocking_evidence is empty.")
-    
+
     # 3. HUMAN_REVIEW invariants
     if decision.status == DecisionStatus.HUMAN_REVIEW:
         if not policy.human_approval:
@@ -48,7 +48,7 @@ def validate_decision_integrity(decision: Decision, policy: Policy, evidence: li
             violations.append("Decision is ALLOW but has blocking_evidence.")
         if policy.human_approval:
             violations.append("Decision is ALLOW but policy requires human_approval (should be HUMAN_REVIEW).")
-            
+
         # Re-verify that all required conditions are indeed satisfied
         evidence_by_id = {e.id: e for e in evidence}
         for req in policy.required_evidence:

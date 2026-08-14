@@ -11,11 +11,10 @@ Produces evidence about TLS certificates and keys.
 
 from __future__ import annotations
 
-import os
 from datetime import datetime, timezone
 
 from evidencetool.models.observation import Observation
-from evidencetool.providers._shell import run_command, file_exists
+from evidencetool.providers._shell import file_exists, run_command
 from evidencetool.providers.base import ProviderContext
 from evidencetool.providers.registry import provider
 
@@ -24,7 +23,7 @@ DEFAULT_CERT_PATH = "/etc/letsencrypt/live/example.com/fullchain.pem"
 DEFAULT_KEY_PATH = "/etc/letsencrypt/live/example.com/privkey.pem"
 
 
-def _now():
+def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
@@ -33,7 +32,7 @@ class TLSProvider:
     def collect(self, context: ProviderContext) -> list[Observation]:
         certificate_path = context.get("certificate_path", DEFAULT_CERT_PATH)
         private_key_path = context.get("private_key_path", DEFAULT_KEY_PATH)
-        host = context.get("host", None)
+        host = context.get("host", "")
         return [
             self._certificate_exists(certificate_path, host),
             self._certificate_valid(certificate_path, host),
@@ -152,7 +151,7 @@ class TLSProvider:
         else:
             cert_modulus = cert_result.stdout.strip()
             key_modulus = key_result.stdout.strip()
-            
+
             if cert_modulus == key_modulus:
                 status, message = "PASS", "Certificate and private key moduli match"
             else:

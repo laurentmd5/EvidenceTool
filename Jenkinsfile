@@ -31,16 +31,52 @@ pipeline {
                 sh '''
                     python -m venv /tmp/venv
                     . /tmp/venv/bin/activate
-                    pip install --no-cache-dir -e ".[test]"
+                    pip install --no-cache-dir -e ".[dev,test]"
                 '''
             }
         }
  
-        stage('Test') {
+        stage('Code Quality (Ruff)') {
             steps {
                 sh '''
                     . /tmp/venv/bin/activate
-                    pytest tests/ -v --junitxml=test-results.xml
+                    ruff check src/ tests/
+                '''
+            }
+        }
+
+        stage('Type Checking (Mypy)') {
+            steps {
+                sh '''
+                    . /tmp/venv/bin/activate
+                    mypy src/
+                '''
+            }
+        }
+
+        stage('Security (Bandit SAST)') {
+            steps {
+                sh '''
+                    . /tmp/venv/bin/activate
+                    bandit -r src/ -c pyproject.toml
+                '''
+            }
+        }
+
+        stage('Security (pip-audit SCA)') {
+            steps {
+                sh '''
+                    . /tmp/venv/bin/activate
+                    pip-audit
+                '''
+            }
+        }
+ 
+        stage('Test & Coverage (Pytest)') {
+            steps {
+                sh '''
+                    . /tmp/venv/bin/activate
+                    pytest tests/ -v --junitxml=test-results.xml --cov=evidencetool --cov-report=xml
                 '''
             }
         }

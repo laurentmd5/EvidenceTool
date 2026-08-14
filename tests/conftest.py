@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from evidencetool.models.observation import Observation
-from evidencetool.models.policy import EvidenceRequirement, OnUnknown, Policy, RiskLevel
+from evidencetool.models.policy import EvidenceRequirement, Policy, RiskLevel
 
 
 def make_observation(

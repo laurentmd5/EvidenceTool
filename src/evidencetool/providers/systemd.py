@@ -18,7 +18,7 @@ from evidencetool.providers.registry import provider
 COLLECTOR = "systemd_provider"
 
 
-def _now():
+def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
@@ -26,7 +26,7 @@ def _now():
 class SystemdProvider:
     def collect(self, context: ProviderContext) -> list[Observation]:
         service = context.require("service")
-        host = context.get("host", None)
+        host = context.get("host", "")
         return [
             self._service_exists(service, host),
             self._service_active(service, host),

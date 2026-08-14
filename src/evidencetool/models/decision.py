@@ -17,6 +17,7 @@ an input to any Decision-producing function anywhere in this codebase.
 
 from __future__ import annotations
 
+import typing
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -33,7 +34,7 @@ class Decision:
     reason: str
     blocking_evidence: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, typing.Any]:
         return {
             "status": self.status.value,
             "reason": self.reason,

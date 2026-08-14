@@ -7,6 +7,7 @@ exact same JSON. The JSON is the real contract; text is only a view over it.
 from __future__ import annotations
 
 import json
+import typing
 
 from evidencetool.diagnose import DiagnosisResult
 from evidencetool.models.evidence import EvidenceStatus
@@ -18,7 +19,7 @@ _STATUS_SYMBOL = {
 }
 
 
-def to_contract_dict(result: DiagnosisResult) -> dict:
+def to_contract_dict(result: DiagnosisResult) -> dict[str, typing.Any]:
     return {
         "incident": {
             "id": result.incident.id,

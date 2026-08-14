@@ -201,13 +201,13 @@ def test_precedence_invariant_block_beats_human_review_beats_allow(
 def test_10_integrity_allow_with_fail(observation_factory, policy_factory):
     from evidencetool.decision.integrity import validate_decision_integrity
     from evidencetool.models.decision import Decision
-    
+
     policy = policy_factory(required_evidence=["e1"])
     evidence = _evidence_list(observation_factory, [("e1", "FAIL", 0)])
-    
+
     # Inject fake ALLOW
     fake_decision = Decision(status=DecisionStatus.ALLOW, blocking_evidence=[], reason="test")
-    
+
     result = validate_decision_integrity(fake_decision, policy, evidence)
     assert not result.is_valid
     assert "Decision is ALLOW but required evidence e1 is FAIL." in result.violations[0]
@@ -216,14 +216,14 @@ def test_10_integrity_allow_with_fail(observation_factory, policy_factory):
 def test_11_integrity_review_without_approval(observation_factory, policy_factory):
     from evidencetool.decision.integrity import validate_decision_integrity
     from evidencetool.models.decision import Decision
-    
+
     # Policy does NOT require human approval
     policy = policy_factory(required_evidence=["e1"], human_approval=False)
     evidence = _evidence_list(observation_factory, [("e1", "PASS", 0)])
-    
+
     # Inject fake HUMAN_REVIEW
     fake_decision = Decision(status=DecisionStatus.HUMAN_REVIEW, blocking_evidence=[], reason="test")
-    
+
     result = validate_decision_integrity(fake_decision, policy, evidence)
     assert not result.is_valid
     assert "Decision is HUMAN_REVIEW but policy.human_approval is false." in result.violations[0]
@@ -232,13 +232,13 @@ def test_11_integrity_review_without_approval(observation_factory, policy_factor
 def test_12_integrity_block_without_evidence(observation_factory, policy_factory):
     from evidencetool.decision.integrity import validate_decision_integrity
     from evidencetool.models.decision import Decision
-    
+
     policy = policy_factory(required_evidence=["e1"])
     evidence = _evidence_list(observation_factory, [("e1", "PASS", 0)])
-    
+
     # Inject fake BLOCK with empty blocking evidence
     fake_decision = Decision(status=DecisionStatus.BLOCK, blocking_evidence=[], reason="test")
-    
+
     result = validate_decision_integrity(fake_decision, policy, evidence)
     assert not result.is_valid
     assert "Decision is BLOCK but blocking_evidence is empty." in result.violations[0]
@@ -247,14 +247,14 @@ def test_12_integrity_block_without_evidence(observation_factory, policy_factory
 def test_13_integrity_precedence(observation_factory, policy_factory):
     from evidencetool.decision.integrity import validate_decision_integrity
     from evidencetool.models.decision import Decision
-    
+
     # Policy requires human approval AND evidence fails -> correct is BLOCK
     policy = policy_factory(required_evidence=["e1"], human_approval=True)
     evidence = _evidence_list(observation_factory, [("e1", "FAIL", 0)])
-    
+
     fake_allow = Decision(status=DecisionStatus.ALLOW, blocking_evidence=[], reason="test")
     assert not validate_decision_integrity(fake_allow, policy, evidence).is_valid
-    
+
     fake_review = Decision(status=DecisionStatus.HUMAN_REVIEW, blocking_evidence=["e1"], reason="test")
     assert not validate_decision_integrity(fake_review, policy, evidence).is_valid
 
