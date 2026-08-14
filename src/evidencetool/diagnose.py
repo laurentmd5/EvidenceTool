@@ -34,11 +34,11 @@ from dataclasses import dataclass
 from evidencetool.decision.engine import decide
 from evidencetool.decision.integrity import validate_decision_integrity
 from evidencetool.evidence.evaluator import evaluate_observation
+from evidencetool.models.correlation import Situation
 from evidencetool.models.decision import Decision
 from evidencetool.models.evidence import Evidence
 from evidencetool.models.incident import Incident
 from evidencetool.models.policy import Policy
-from evidencetool.models.correlation import Situation
 from evidencetool.observability.metrics import MetricsData
 from evidencetool.recommendation import recommend
 
@@ -55,7 +55,7 @@ class DiagnosisResult:
     metrics: MetricsData
 
 
-def diagnose(
+def diagnose(  # noqa: C901
     target: str,
     policy: Policy,
     context: dict[str, str],
@@ -81,7 +81,7 @@ def diagnose(
         parts = req.id.split(".")
         if len(parts) > 1:
             needed_namespaces.add(parts[0])
-            
+
     if catalog:
         for sit_id in policy.allow + policy.blocked_by:
             for sit in catalog:
@@ -138,7 +138,7 @@ def diagnose(
     # 4. Decide
     t0 = time.time()
     from evidencetool.decision.correlation import correlate_state
-    
+
     state = correlate_state(evidence, catalog or [])
     decision = decide(state, policy, evidence_fallback=evidence)
     m.decision_duration = time.time() - t0

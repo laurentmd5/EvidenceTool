@@ -7,8 +7,8 @@ items into a higher-level OperationalState using deterministic Signatures.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import typing
+from dataclasses import dataclass, field
 
 from evidencetool.models.evidence import EvidenceStatus
 
@@ -22,7 +22,7 @@ class Situation:
     id: str
     description: str
     signature: dict[str, EvidenceStatus]
-    
+
     def to_dict(self) -> dict[str, typing.Any]:
         return {
             "id": self.id,
@@ -35,17 +35,17 @@ class Situation:
 class OperationalState:
     """
     The composite operational state of the incident at a given time.
-    
+
     A state can contain multiple simultaneous situations (e.g., both
     NGINX_SERVICE_DOWN and TLS_CERTIFICATE_EXPIRED).
-    
+
     If critical evidence is missing, UNKNOWN, or no known situation matches
     the observed evidence, the state is marked as ambiguous.
     """
     situations: list[Situation] = field(default_factory=list)
     unresolved_evidence: list[str] = field(default_factory=list)
     ambiguous: bool = False
-    
+
     def to_dict(self) -> dict[str, typing.Any]:
         return {
             "situations": [s.to_dict() for s in self.situations],

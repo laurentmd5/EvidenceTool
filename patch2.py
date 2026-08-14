@@ -1,6 +1,7 @@
 import os
 import re
 
+
 def replace_in_file(filepath, pattern, replacement):
     with open(filepath, 'r') as f:
         content = f.read()

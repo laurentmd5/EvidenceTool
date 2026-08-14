@@ -14,11 +14,11 @@ strictly from Evidence + Policy, nothing else.
 
 from __future__ import annotations
 
+from evidencetool.models.correlation import OperationalState
 from evidencetool.models.decision import Decision, DecisionStatus
 from evidencetool.models.evidence import Evidence, EvidenceStatus
 from evidencetool.models.policy import OnUnknown, Policy
 
-from evidencetool.models.correlation import OperationalState
 
 def _decide_legacy(evidence: list[Evidence], policy: Policy) -> Decision:
     evidence_by_id = {e.id: e for e in evidence}
@@ -77,7 +77,7 @@ def _decide_legacy(evidence: list[Evidence], policy: Policy) -> Decision:
 
 def decide(
     state_or_evidence: OperationalState | list[Evidence],
-    policy: Policy, 
+    policy: Policy,
     evidence_fallback: list[Evidence] | None = None
 ) -> Decision:
     """
@@ -89,19 +89,19 @@ def decide(
         state = OperationalState()
     else:
         state = state_or_evidence
-        
+
     if not policy.allow and not policy.blocked_by:
         return _decide_legacy(evidence_fallback or [], policy)
-        
+
     if state.ambiguous:
         return Decision(
             status=DecisionStatus.BLOCK,
             reason="Operational state is ambiguous due to unresolved or missing evidence.",
             blocking_evidence=state.unresolved_evidence,
         )
-        
+
     situation_ids = {s.id for s in state.situations}
-    
+
     for blocked_id in policy.blocked_by:
         if blocked_id in situation_ids:
             return Decision(
@@ -109,27 +109,27 @@ def decide(
                 reason=f"Situation '{blocked_id}' is explicitly blocked by policy.",
                 blocking_evidence=[],
             )
-            
+
     allowed = False
     for allow_id in policy.allow:
         if allow_id in situation_ids:
             allowed = True
             break
-            
+
     if not allowed:
         return Decision(
             status=DecisionStatus.BLOCK,
             reason="No known situation matches the allowed situations for this action.",
             blocking_evidence=[],
         )
-        
+
     if policy.human_approval:
         return Decision(
             status=DecisionStatus.HUMAN_REVIEW,
             reason="Situation authorized, but this action requires human approval.",
             blocking_evidence=[],
         )
-        
+
     return Decision(
         status=DecisionStatus.ALLOW,
         reason="Situation authorized and no human approval required.",

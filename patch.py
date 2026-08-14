@@ -1,6 +1,7 @@
 import os
 import re
 
+
 def replace_in_file(filepath, pattern, replacement):
     with open(filepath, 'r') as f:
         content = f.read()
@@ -18,7 +19,7 @@ for root, _, files in os.walk('src/evidencetool'):
             replace_in_file(filepath, r'value: dict = field', r'value: dict[str, typing.Any] = field')
             # Fix def _now(): -> def _now() -> datetime:
             replace_in_file(filepath, r'def _now\(\):', r'def _now() -> datetime:')
-            
+
             # fix missing return None on __init__
             replace_in_file(filepath, r'def __init__\(self\):', r'def __init__(self) -> None:')
 
