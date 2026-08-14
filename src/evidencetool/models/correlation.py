@@ -45,10 +45,12 @@ class OperationalState:
     situations: list[Situation] = field(default_factory=list)
     unresolved_evidence: list[str] = field(default_factory=list)
     ambiguous: bool = False
+    discrepancies: dict[str, list[str]] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, typing.Any]:
         return {
             "situations": [s.to_dict() for s in self.situations],
             "unresolved_evidence": self.unresolved_evidence,
             "ambiguous": self.ambiguous,
+            "discrepancies": self.discrepancies,
         }

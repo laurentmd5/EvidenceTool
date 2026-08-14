@@ -89,6 +89,7 @@ def test_scenario_1_normal(catalog, policy):
 
     decision = decide(state, policy)
     assert decision.status == DecisionStatus.BLOCK
+    assert decision.blocking_evidence == ["systemd.service_active"]
 
     integrity = validate_decision_integrity(decision, policy, evidence, state)
     assert integrity.is_valid
@@ -129,6 +130,7 @@ def test_scenario_3_config_invalid_blocked(catalog, policy):
 
     decision = decide(state, policy)
     assert decision.status == DecisionStatus.BLOCK
+    assert decision.blocking_evidence == ["nginx.config_valid"]
 
     integrity = validate_decision_integrity(decision, policy, evidence, state)
     assert integrity.is_valid
@@ -209,3 +211,20 @@ def test_scenario_7_malicious_injection_blocked_situation(catalog, policy):
     integrity = validate_decision_integrity(decision, policy, evidence, state)
     assert not integrity.is_valid
     assert any("explicitly blocked" in v for v in integrity.violations)
+
+
+def test_scenario_8_irrelevant_unknown(catalog, policy):
+    """Test 8: UNKNOWN evidence not in catalog doesn't cause AMBIGUOUS."""
+    evidence = [
+        build_evidence("systemd.service_active", EvidenceStatus.FAIL),
+        build_evidence("nginx.config_valid", EvidenceStatus.PASS),
+        build_evidence("some_other.evidence", EvidenceStatus.UNKNOWN),
+    ]
+
+    state = correlate_state(evidence, catalog)
+    assert not state.ambiguous
+    assert len(state.situations) == 1
+    assert state.situations[0].id == "NGINX_SERVICE_DOWN"
+
+    decision = decide(state, policy)
+    assert decision.status == DecisionStatus.ALLOW

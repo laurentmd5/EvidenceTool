@@ -106,10 +106,12 @@ def decide(
 
         for blocked_id in policy.blocked_by:
             if blocked_id in situation_ids:
+                matched_sit = next(s for s in state.situations if s.id == blocked_id)
+                blocking_ev = list(matched_sit.signature.keys())
                 return Decision(
                     status=DecisionStatus.BLOCK,
                     reason=f"Situation '{blocked_id}' is explicitly blocked by policy.",
-                    blocking_evidence=[],
+                    blocking_evidence=blocking_ev,
                 )
 
         allowed = False
@@ -119,10 +121,14 @@ def decide(
                 break
 
         if not allowed:
+            blocking_ev_set = set()
+            for allow_id in policy.allow:
+                blocking_ev_set.update(state.discrepancies.get(allow_id, []))
+                
             return Decision(
                 status=DecisionStatus.BLOCK,
                 reason="No known situation matches the allowed situations for this action.",
-                blocking_evidence=[],
+                blocking_evidence=sorted(list(blocking_ev_set)),
             )
 
         if policy.human_approval:
