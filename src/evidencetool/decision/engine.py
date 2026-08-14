@@ -81,57 +81,63 @@ def decide(
     evidence_fallback: list[Evidence] | None = None
 ) -> Decision:
     """
-    V0.3 Decision Engine logic based on Operational State.
-    Falls back to V0.2 logic if no allow/blocked_by rules are defined in the policy.
+    Routes to the correct decision engine based on the policy schema.
     """
-    if isinstance(state_or_evidence, list):
-        evidence_fallback = state_or_evidence
-        state = OperationalState()
-    else:
+    from evidencetool.models.policy import PolicySchema
+
+    if policy.schema == PolicySchema.V1_LEGACY:
+        evidence = state_or_evidence if isinstance(state_or_evidence, list) else (evidence_fallback or [])
+        if not evidence and not isinstance(state_or_evidence, list):
+             raise TypeError("V1_LEGACY policy requires list[Evidence]")
+        return _decide_legacy(evidence, policy)
+
+    if policy.schema == PolicySchema.V2_SITUATIONAL:
+        if not isinstance(state_or_evidence, OperationalState):
+            raise TypeError("V2_SITUATIONAL policy requires OperationalState")
+            
         state = state_or_evidence
 
-    if not policy.allow and not policy.blocked_by:
-        return _decide_legacy(evidence_fallback or [], policy)
-
-    if state.ambiguous:
-        return Decision(
-            status=DecisionStatus.BLOCK,
-            reason="Operational state is ambiguous due to unresolved or missing evidence.",
-            blocking_evidence=state.unresolved_evidence,
-        )
-
-    situation_ids = {s.id for s in state.situations}
-
-    for blocked_id in policy.blocked_by:
-        if blocked_id in situation_ids:
+        if state.ambiguous:
             return Decision(
                 status=DecisionStatus.BLOCK,
-                reason=f"Situation '{blocked_id}' is explicitly blocked by policy.",
+                reason="Operational state is ambiguous due to unresolved or missing evidence.",
+                blocking_evidence=state.unresolved_evidence,
+            )
+
+        situation_ids = {s.id for s in state.situations}
+
+        for blocked_id in policy.blocked_by:
+            if blocked_id in situation_ids:
+                return Decision(
+                    status=DecisionStatus.BLOCK,
+                    reason=f"Situation '{blocked_id}' is explicitly blocked by policy.",
+                    blocking_evidence=[],
+                )
+
+        allowed = False
+        for allow_id in policy.allow:
+            if allow_id in situation_ids:
+                allowed = True
+                break
+
+        if not allowed:
+            return Decision(
+                status=DecisionStatus.BLOCK,
+                reason="No known situation matches the allowed situations for this action.",
                 blocking_evidence=[],
             )
 
-    allowed = False
-    for allow_id in policy.allow:
-        if allow_id in situation_ids:
-            allowed = True
-            break
+        if policy.human_approval:
+            return Decision(
+                status=DecisionStatus.HUMAN_REVIEW,
+                reason="Situation authorized, but this action requires human approval.",
+                blocking_evidence=[],
+            )
 
-    if not allowed:
         return Decision(
-            status=DecisionStatus.BLOCK,
-            reason="No known situation matches the allowed situations for this action.",
+            status=DecisionStatus.ALLOW,
+            reason="Situation authorized and no human approval required.",
             blocking_evidence=[],
         )
 
-    if policy.human_approval:
-        return Decision(
-            status=DecisionStatus.HUMAN_REVIEW,
-            reason="Situation authorized, but this action requires human approval.",
-            blocking_evidence=[],
-        )
-
-    return Decision(
-        status=DecisionStatus.ALLOW,
-        reason="Situation authorized and no human approval required.",
-        blocking_evidence=[],
-    )
+    raise ValueError(f"Unknown policy schema: {policy.schema}")

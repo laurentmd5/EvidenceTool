@@ -38,11 +38,17 @@ class EvidenceRequirement:
     max_age: float | None = None  # seconds; None = no freshness constraint
 
 
+class PolicySchema(str, Enum):
+    V1_LEGACY = "v1"
+    V2_SITUATIONAL = "v2"
+
+
 @dataclass(frozen=True)
 class Policy:
     version: str
     action: str
     risk: RiskLevel
+    schema: PolicySchema = PolicySchema.V1_LEGACY
     required_evidence: list[EvidenceRequirement] = field(default_factory=list)
     allow: list[str] = field(default_factory=list)
     blocked_by: list[str] = field(default_factory=list)

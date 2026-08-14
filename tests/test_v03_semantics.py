@@ -45,11 +45,13 @@ def catalog():
 
 
 @pytest.fixture
-def policy():
+def policy() -> Policy:
+    from evidencetool.models.policy import PolicySchema
     return Policy(
         version="1.0",
         action="restart_nginx",
         risk=RiskLevel.MEDIUM,
+        schema=PolicySchema.V2_SITUATIONAL,
         allow=["NGINX_SERVICE_DOWN"],
         blocked_by=["NGINX_CONFIG_INVALID", "TLS_CERTIFICATE_EXPIRED"]
     )

@@ -17,6 +17,7 @@ from evidencetool.models.policy import (
     EvidenceRequirement,
     OnUnknown,
     Policy,
+    PolicySchema,
     RiskLevel,
 )
 
@@ -45,10 +46,14 @@ def load_policy_from_string(text: str) -> Policy:
                 )
             )
 
+    schema_val = raw.get("schema", PolicySchema.V1_LEGACY.value)
+    schema = PolicySchema(schema_val)
+
     return Policy(
         version=str(raw["version"]),
         action=raw["action"],
         risk=RiskLevel(raw["risk"]),
+        schema=schema,
         required_evidence=required_evidence,
         allow=raw.get("allow", []),
         blocked_by=raw.get("blocked_by", []),
