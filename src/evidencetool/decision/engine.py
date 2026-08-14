@@ -77,8 +77,7 @@ def _decide_legacy(evidence: list[Evidence], policy: Policy) -> Decision:
 
 def decide(
     state_or_evidence: OperationalState | list[Evidence],
-    policy: Policy,
-    evidence_fallback: list[Evidence] | None = None
+    policy: Policy
 ) -> Decision:
     """
     Routes to the correct decision engine based on the policy schema.
@@ -86,10 +85,9 @@ def decide(
     from evidencetool.models.policy import PolicySchema
 
     if policy.schema == PolicySchema.V1_LEGACY:
-        evidence = state_or_evidence if isinstance(state_or_evidence, list) else (evidence_fallback or [])
-        if not evidence and not isinstance(state_or_evidence, list):
+        if not isinstance(state_or_evidence, list):
              raise TypeError("V1_LEGACY policy requires list[Evidence]")
-        return _decide_legacy(evidence, policy)
+        return _decide_legacy(state_or_evidence, policy)
 
     if policy.schema == PolicySchema.V2_SITUATIONAL:
         if not isinstance(state_or_evidence, OperationalState):

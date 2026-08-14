@@ -138,9 +138,13 @@ def diagnose(  # noqa: C901
     # 4. Decide
     t0 = time.time()
     from evidencetool.decision.correlation import correlate_state
+    from evidencetool.models.policy import PolicySchema
 
     state = correlate_state(evidence, catalog or [])
-    decision = decide(state, policy, evidence_fallback=evidence)
+    if policy.schema == PolicySchema.V2_SITUATIONAL:
+        decision = decide(state, policy)
+    else:
+        decision = decide(evidence, policy)
     m.decision_duration = time.time() - t0
 
     m.decision_status = decision.status
