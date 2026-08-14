@@ -241,7 +241,7 @@ def test_12_integrity_block_without_evidence(observation_factory, policy_factory
 
     result = validate_decision_integrity(fake_decision, policy, evidence)
     assert not result.is_valid
-    assert "Decision is BLOCK but blocking_evidence is empty." in result.violations[0]
+    assert "Decision is BLOCK but blocking_evidence is empty (required for legacy policies)." in result.violations[0]
 
 
 def test_13_integrity_precedence(observation_factory, policy_factory):

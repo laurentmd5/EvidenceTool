@@ -44,6 +44,8 @@ class Policy:
     action: str
     risk: RiskLevel
     required_evidence: list[EvidenceRequirement] = field(default_factory=list)
+    allow: list[str] = field(default_factory=list)
+    blocked_by: list[str] = field(default_factory=list)
     human_approval: bool = False
 
     def requirement_for(self, evidence_id: str) -> EvidenceRequirement | None:

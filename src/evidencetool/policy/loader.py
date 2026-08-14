@@ -50,5 +50,7 @@ def load_policy_from_string(text: str) -> Policy:
         action=raw["action"],
         risk=RiskLevel(raw["risk"]),
         required_evidence=required_evidence,
+        allow=raw.get("allow", []),
+        blocked_by=raw.get("blocked_by", []),
         human_approval=bool(raw.get("human_approval", False)),
     )

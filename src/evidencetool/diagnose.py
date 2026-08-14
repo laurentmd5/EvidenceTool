@@ -38,6 +38,7 @@ from evidencetool.models.decision import Decision
 from evidencetool.models.evidence import Evidence
 from evidencetool.models.incident import Incident
 from evidencetool.models.policy import Policy
+from evidencetool.models.correlation import Situation
 from evidencetool.observability.metrics import MetricsData
 from evidencetool.recommendation import recommend
 
@@ -58,6 +59,7 @@ def diagnose(
     target: str,
     policy: Policy,
     context: dict[str, str],
+    catalog: list[Situation] | None = None,
 ) -> DiagnosisResult:
     from evidencetool.providers.base import ProviderContext
     from evidencetool.providers.registry import get_provider, load_all_providers
@@ -79,6 +81,15 @@ def diagnose(
         parts = req.id.split(".")
         if len(parts) > 1:
             needed_namespaces.add(parts[0])
+            
+    if catalog:
+        for sit_id in policy.allow + policy.blocked_by:
+            for sit in catalog:
+                if sit.id == sit_id:
+                    for ev_id in sit.signature.keys():
+                        parts = ev_id.split(".")
+                        if len(parts) > 1:
+                            needed_namespaces.add(parts[0])
 
     # 2. Instantiate and run only the needed providers
     provider_context = ProviderContext(context)
@@ -126,13 +137,16 @@ def diagnose(
 
     # 4. Decide
     t0 = time.time()
-    decision = decide(evidence, policy)
+    from evidencetool.decision.correlation import correlate_state
+    
+    state = correlate_state(evidence, catalog or [])
+    decision = decide(state, policy, evidence_fallback=evidence)
     m.decision_duration = time.time() - t0
 
     m.decision_status = decision.status
 
     # 5. Integrity Check
-    integrity_result = validate_decision_integrity(decision, policy, evidence)
+    integrity_result = validate_decision_integrity(decision, policy, evidence, state=state)
     if not integrity_result.is_valid:
         m.integrity_violation = 1
         m.success = False
