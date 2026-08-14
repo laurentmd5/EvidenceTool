@@ -228,3 +228,19 @@ def test_scenario_8_irrelevant_unknown(catalog, policy):
 
     decision = decide(state, policy)
     assert decision.status == DecisionStatus.ALLOW
+
+
+def test_real_catalog_loading():
+    """Test that the real nginx.yaml catalog can be successfully loaded and has the right shape."""
+    from evidencetool.diagnostic.loader import load_catalog
+    from pathlib import Path
+    
+    catalog_path = Path(__file__).resolve().parents[1] / "catalogs" / "nginx.yaml"
+    situations = load_catalog(str(catalog_path))
+    
+    assert len(situations) == 8
+    
+    # Quick sanity check
+    service_down = next(s for s in situations if s.id == "NGINX_SERVICE_DOWN")
+    assert service_down.signature["systemd.service_active"] == EvidenceStatus.FAIL
+    assert service_down.signature["nginx.config_valid"] == EvidenceStatus.PASS

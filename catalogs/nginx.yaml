@@ -1,46 +1,47 @@
-- id: "NGINX_SERVICE_DOWN"
-  description: "Nginx service is installed but inactive, configuration is valid, TLS is valid, disk space is available"
-  signature:
-    systemd.service_exists: PASS
-    systemd.service_active: FAIL
-    nginx.config_valid: PASS
-    tls.certificate_exists: PASS
-    tls.certificate_valid: PASS
-    tls.private_key_exists: PASS
-    tls.key_matches_certificate: PASS
-    filesystem.disk_space_available: PASS
+situations:
+  NGINX_SERVICE_DOWN:
+    description: "Nginx service is installed but inactive, configuration is valid, TLS is valid, disk space is available"
+    signature:
+      systemd.service_exists: PASS
+      systemd.service_active: FAIL
+      nginx.config_valid: PASS
+      tls.certificate_exists: PASS
+      tls.certificate_valid: PASS
+      tls.private_key_exists: PASS
+      tls.key_matches_certificate: PASS
+      filesystem.disk_space_available: PASS
 
-- id: "NGINX_CONFIG_INVALID"
-  description: "Nginx configuration is invalid"
-  signature:
-    nginx.config_valid: FAIL
+  NGINX_CONFIG_INVALID:
+    description: "Nginx configuration is invalid"
+    signature:
+      nginx.config_valid: FAIL
 
-- id: "TLS_CERTIFICATE_MISSING"
-  description: "TLS certificate file does not exist"
-  signature:
-    tls.certificate_exists: FAIL
+  TLS_CERTIFICATE_MISSING:
+    description: "TLS certificate file does not exist"
+    signature:
+      tls.certificate_exists: FAIL
 
-- id: "TLS_CERTIFICATE_EXPIRED"
-  description: "TLS certificate is expired or invalid"
-  signature:
-    tls.certificate_valid: FAIL
+  TLS_CERTIFICATE_EXPIRED:
+    description: "TLS certificate is expired or invalid"
+    signature:
+      tls.certificate_valid: FAIL
 
-- id: "TLS_KEY_MISSING"
-  description: "TLS private key file does not exist"
-  signature:
-    tls.private_key_exists: FAIL
+  TLS_KEY_MISSING:
+    description: "TLS private key file does not exist"
+    signature:
+      tls.private_key_exists: FAIL
 
-- id: "TLS_KEY_MISMATCH"
-  description: "TLS private key does not match the certificate"
-  signature:
-    tls.key_matches_certificate: FAIL
+  TLS_KEY_MISMATCH:
+    description: "TLS private key does not match the certificate"
+    signature:
+      tls.key_matches_certificate: FAIL
 
-- id: "NGINX_SERVICE_NOT_INSTALLED"
-  description: "Nginx systemd service is not installed"
-  signature:
-    systemd.service_exists: FAIL
+  NGINX_SERVICE_NOT_INSTALLED:
+    description: "Nginx systemd service is not installed"
+    signature:
+      systemd.service_exists: FAIL
 
-- id: "DISK_FULL"
-  description: "Disk space is full"
-  signature:
-    filesystem.disk_space_available: FAIL
+  DISK_FULL:
+    description: "Disk space is full"
+    signature:
+      filesystem.disk_space_available: FAIL
