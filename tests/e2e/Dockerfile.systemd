@@ -1,0 +1,61 @@
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y \
+    systemd systemd-sysv \
+    nginx \
+    python3 python3-venv python3-pip \
+    acl jq openssl sudo curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create dedicated system user
+RUN groupadd --system evidencetool && \
+    useradd --system --gid evidencetool --shell /usr/sbin/nologin --no-create-home evidencetool
+
+# Setup Nginx and TLS
+RUN mkdir -p /etc/nginx/ssl && \
+    openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+    -keyout /etc/nginx/ssl/nginx.key -out /etc/nginx/ssl/nginx.crt \
+    -subj "/C=US/ST=State/L=City/O=Org/OU=IT/CN=localhost"
+
+# Set ACLs
+RUN setfacl -m g:evidencetool:r /etc/nginx/ssl/nginx.key && \
+    setfacl -m g:evidencetool:r /etc/nginx/ssl/nginx.crt && \
+    setfacl -m d:g:evidencetool:r /etc/nginx/ssl
+
+# Configure Nginx to use the certs
+RUN echo "server {\n\
+    listen 443 ssl;\n\
+    server_name localhost;\n\
+    ssl_certificate /etc/nginx/ssl/nginx.crt;\n\
+    ssl_certificate_key /etc/nginx/ssl/nginx.key;\n\
+    location / {\n\
+        root /var/www/html;\n\
+    }\n\
+}" > /etc/nginx/sites-available/default
+
+# Systemd requires this to run in docker
+VOLUME [ "/sys/fs/cgroup" ]
+
+# Setup EvidenceTool
+COPY . /opt/EvidenceTool
+WORKDIR /opt/EvidenceTool
+
+RUN python3 -m venv .venv && \
+    .venv/bin/pip install -e .
+
+# Remove the systemd default targets that cause issues in containers
+RUN cd /lib/systemd/system/sysinit.target.wants/ && ls | grep -v systemd-tmpfiles-setup | xargs rm -f $1 && \
+    rm -f /lib/systemd/system/multi-user.target.wants/* && \
+    rm -f /etc/systemd/system/*.wants/* && \
+    rm -f /lib/systemd/system/local-fs.target.wants/* && \
+    rm -f /lib/systemd/system/sockets.target.wants/*udev* && \
+    rm -f /lib/systemd/system/sockets.target.wants/*initctl* && \
+    rm -f /lib/systemd/system/basic.target.wants/* && \
+    rm -f /lib/systemd/system/anaconda.target.wants/*
+
+# Make sure nginx is enabled
+RUN systemctl enable nginx
+
+CMD ["/lib/systemd/systemd"]

@@ -99,11 +99,42 @@ Run `nginx -t` locally to see the exact syntax error, then fix nginx.conf
 before retrying.
 ```
 
+## Least Privilege Setup (Production)
+
+EvidenceTool is designed to run without `sudo` access, adhering strictly to the principle of least privilege.
+However, it requires read access to sensitive files like TLS private keys (`tls.key_matches_certificate` provider).
+Instead of granting `sudo`, create a dedicated system account and use Access Control Lists (ACLs):
+
+```bash
+# 1. Create a dedicated system user and group (no shell, no sudo)
+sudo groupadd --system evidencetool
+sudo useradd --system --gid evidencetool --shell /usr/sbin/nologin --no-create-home evidencetool
+
+# 2. Grant read access specifically to the TLS keys via ACL
+sudo apt install -y acl
+sudo setfacl -m g:evidencetool:r /etc/nginx/ssl/nginx.key
+sudo setfacl -m g:evidencetool:r /etc/nginx/ssl/nginx.crt
+
+# If using Let's Encrypt (Certbot), ensure ACLs survive renewals:
+# sudo mkdir -p /etc/letsencrypt/renewal-hooks/deploy
+# sudo tee /etc/letsencrypt/renewal-hooks/deploy/evidencetool-acl.sh > /dev/null << 'EOF'
+# #!/bin/bash
+# setfacl -m g:evidencetool:r "$RENEWED_LINEAGE/privkey.pem"
+# EOF
+# sudo chmod +x /etc/letsencrypt/renewal-hooks/deploy/evidencetool-acl.sh
+```
+
 ## Tests
 
 ```bash
 # Run tests with coverage
 pytest tests/ -v --cov=evidencetool --cov-report=term
+
+# E2E Operational Tests (Requires Docker)
+# Spins up an ephemeral container with systemd, configures the least privilege
+# user, and verifies real diagnostic logic against Nginx.
+./tests/e2e/run.sh
+```
 
 # Code Quality & Security (DevSecOps)
 ruff check src/ tests/
