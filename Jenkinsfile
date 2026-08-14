@@ -31,6 +31,7 @@ pipeline {
                 sh '''
                     python -m venv /tmp/venv
                     . /tmp/venv/bin/activate
+                    pip install --upgrade pip setuptools wheel
                     pip install --no-cache-dir -e ".[dev,test]"
                 '''
             }
