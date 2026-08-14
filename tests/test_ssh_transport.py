@@ -43,7 +43,7 @@ def test_ssh_transport_execution():
         assert "-o" in args
         assert "BatchMode=yes" in args
         assert "ControlMaster=auto" in args
-        assert "StrictHostKeyChecking=accept-new" in args
+        assert "StrictHostKeyChecking=yes" in args
         assert "echo" in args
         assert "hello" in args
 

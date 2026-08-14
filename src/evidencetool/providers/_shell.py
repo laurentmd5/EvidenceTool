@@ -29,13 +29,15 @@ def run_command(args: list[str], timeout: float = 5.0, host: str | None = None) 
     # If host is provided, wrap in ssh
     actual_args = args
     if host:
+        control_path = "/tmp/evidencetool_ssh_%h_%p_%r"
         actual_args = [
             "ssh",
+            "--",
             "-o", "BatchMode=yes",
-            "-o", "StrictHostKeyChecking=accept-new",
             "-o", "ControlMaster=auto",
-            "-o", "ControlPath=/tmp/evidencetool_ssh_%h_%p_%r",
+            "-o", f"ControlPath={control_path}",
             "-o", "ControlPersist=60s",
+            "-o", "StrictHostKeyChecking=yes",
             host,
             "--"
         ] + args

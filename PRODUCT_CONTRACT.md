@@ -451,8 +451,8 @@ A run that correctly diagnoses a broken system and returns `BLOCK` is a **succes
 ### 12.1 SLI Families
 
 **1. Reliability SLI**
-- `evidencetool_last_run_success`: `1` if the run completed successfully and passed integrity validation, `0` otherwise.
-- `evidencetool_integrity_violation`: Count of decision integrity violations.
+- `evidencetool_last_run_success`: Gauge (1 or 0) where `1` if the run completed successfully and passed integrity validation, `0` otherwise.
+- `evidencetool_integrity_violation`: Gauge (1 or 0) indicating if there were decision integrity violations in the last run.
 
 **2. Performance SLI**
 - `evidencetool_last_run_duration_seconds`: Total execution time.
@@ -461,11 +461,11 @@ A run that correctly diagnoses a broken system and returns `BLOCK` is a **succes
 - `evidencetool_policy_duration_seconds`: Time spent in the policy engine.
 - `evidencetool_decision_duration_seconds`: Time spent in the decision engine.
 
-**3. Decision / Operational SLI**
-- `evidencetool_decision{status="ALLOW"|"BLOCK"|"HUMAN_REVIEW"}`: Counter for decisions.
-- `evidencetool_evidence{status="PASS"|"FAIL"|"UNKNOWN"}`: Counter for individual evidence evaluations.
+**3. Decision / Operational SLI (Last Run State)**
+- `evidencetool_decision{status="ALLOW"|"BLOCK"|"HUMAN_REVIEW"}`: Gauge (1 or 0) indicating the decision of the last run.
+- `evidencetool_evidence{status="PASS"|"FAIL"|"UNKNOWN"}`: Gauge indicating the count of each evidence status in the last run.
 
-*Note: High cardinality labels (e.g., incident_id, hostname) are explicitly omitted to prevent metric explosion.*
+*Note: Persistent Counters (e.g. `evidencetool_runs_total`) are deferred. High cardinality labels (e.g., incident_id, hostname) are explicitly omitted to prevent metric explosion.*
 
 ### 12.2 SLO
 

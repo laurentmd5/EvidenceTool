@@ -74,6 +74,16 @@ def diagnose_cmd(
 
     context = {}
     if host:
+        import re
+        # Validate host format to prevent SSH command injection.
+        # It must not start with a hyphen, and must consist only of alphanumeric, dot, hyphen, @, and brackets (for IPv6).
+        if not re.match(r"^([a-zA-Z0-9_-]+@)?([a-zA-Z0-9_.-]+|\[[a-fA-F0-9:]+\])$", host):
+            click.echo(f"Error: Invalid host format '{host}'.", err=True)
+            sys.exit(1)
+        if host.startswith("-"):
+            click.echo(f"Error: Host cannot start with a hyphen.", err=True)
+            sys.exit(1)
+            
         context["host"] = host
         
     for arg in args:

@@ -1,10 +1,12 @@
 """
-TLS provider.
+TLS Provider.
 
-Checks:
-  - tls.certificate_exists
-  - tls.certificate_valid   (not expired, parseable)
-  - tls.private_key_exists
+Produces evidence about TLS certificates and keys.
+
+- tls.certificate_exists
+- tls.certificate_valid
+- tls.private_key_exists
+- tls.key_matches_certificate
 """
 
 from __future__ import annotations

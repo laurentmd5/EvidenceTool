@@ -193,3 +193,60 @@ class DummyDynamicProvider(Provider):
         if pycache.exists():
             for pyc in pycache.glob("dummy_dynamic.*.pyc"):
                 pyc.unlink()
+
+
+# --- TEST F: Provider Namespace Collision ---
+
+def test_F_provider_namespace_collision():
+    from evidencetool.providers.registry import register_provider, _PROVIDERS
+    
+    # Attempting to register a provider with an existing namespace should raise ValueError
+    with pytest.raises(ValueError, match="Provider namespace 'dummy' is already registered"):
+        register_provider("dummy", DummyProvider)
+
+
+# --- TEST G: Provider Import Failure ---
+
+def test_G_provider_import_failure():
+    """
+    Proves that a broken provider module logs an error and records a ProviderLoadError, 
+    but does not crash the registry or prevent other providers from loading.
+    """
+    import importlib
+    from pathlib import Path
+    from evidencetool.providers.registry import load_all_providers, _FAILED_PROVIDERS, get_provider
+    
+    provider_dir = Path(__file__).parent.parent / "src" / "evidencetool" / "providers"
+    broken_file = provider_dir / "broken_dynamic.py"
+    
+    # Introduce a syntax error or import error
+    code = """
+from does_not_exist import nothing
+"""
+    try:
+        broken_file.write_text(code)
+        
+        # Invalidate caches
+        importlib.invalidate_caches()
+        
+        # Load providers. This should not raise an exception.
+        load_all_providers()
+        
+        # The broken provider should be in _FAILED_PROVIDERS
+        assert "broken_dynamic" in _FAILED_PROVIDERS
+        error_info = _FAILED_PROVIDERS["broken_dynamic"]
+        assert error_info.namespace == "broken_dynamic"
+        assert "No module named 'does_not_exist'" in error_info.error
+        
+        # Existing providers should still be accessible
+        provider_instance = get_provider("dummy")
+        assert isinstance(provider_instance, DummyProvider)
+        
+    finally:
+        if broken_file.exists():
+            broken_file.unlink()
+            
+        pycache = provider_dir / "__pycache__"
+        if pycache.exists():
+            for pyc in pycache.glob("broken_dynamic.*.pyc"):
+                pyc.unlink()

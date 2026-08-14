@@ -5,10 +5,18 @@ Enables dynamic discovery of providers based on their namespaces.
 
 from __future__ import annotations
 from typing import Callable, Type
+from dataclasses import dataclass
 
 from evidencetool.providers.base import Provider
 
+@dataclass(frozen=True)
+class ProviderLoadError:
+    namespace: str
+    module: str
+    error: str
+
 _PROVIDERS: dict[str, Type[Provider]] = {}
+_FAILED_PROVIDERS: dict[str, ProviderLoadError] = {}
 
 
 def register_provider(namespace: str, provider_cls: Type[Provider]) -> None:
@@ -54,6 +62,11 @@ def load_all_providers() -> None:
             try:
                 importlib.import_module(full_module_name)
             except Exception as e:
-                # We log it but do not crash the entire loading process for one bad module
+                # Store the error so it can be audited
+                _FAILED_PROVIDERS[module_name] = ProviderLoadError(
+                    namespace=module_name,
+                    module=full_module_name,
+                    error=str(e)
+                )
                 import logging
                 logging.getLogger(__name__).error(f"Failed to load provider module {full_module_name}: {e}")
