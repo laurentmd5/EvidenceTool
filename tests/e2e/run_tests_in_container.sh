@@ -6,6 +6,7 @@ echo "=== Starting E2E Tests ==="
 # Wait for systemd to fully boot
 sleep 5
 
+PYTHON="/opt/EvidenceTool/.venv/bin/python3"
 DIAGNOSE_CMD="sudo -u evidencetool /opt/EvidenceTool/.venv/bin/evidencetool diagnose nginx --policy /opt/EvidenceTool/policies/nginx-v2.yaml --catalog /opt/EvidenceTool/catalogs/nginx.yaml -a config_path=/etc/nginx/nginx.conf -a certificate_path=/etc/nginx/ssl/nginx.crt -a private_key_path=/etc/nginx/ssl/nginx.key -a service=nginx --output json"
 
 check_result() {
@@ -41,7 +42,7 @@ check_result "$OUT" "BLOCK" "NGINX_CONFIG_INVALID"
 echo "Running Scenario B: TLS_CERTIFICATE_EXPIRED"
 # Move valid cert, create an expired one
 mv /etc/nginx/ssl/nginx.crt /etc/nginx/ssl/nginx.crt.bak
-python3 -c "
+$PYTHON -c "
 import datetime
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
@@ -58,7 +59,8 @@ cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name)
 open('/etc/nginx/ssl/nginx.crt','wb').write(cert.public_bytes(serialization.Encoding.PEM))
 open('/etc/nginx/ssl/nginx.key.tmp','wb').write(key.private_bytes(encoding=serialization.Encoding.PEM, format=serialization.PrivateFormat.PKCS8, encryption_algorithm=serialization.NoEncryption()))
 "
-setfacl -m g:evidencetool:r /etc/nginx/ssl/nginx.crt
+# Restore correct ownership so evidencetool can read the new cert
+chown root:evidencetool /etc/nginx/ssl/nginx.crt && chmod 644 /etc/nginx/ssl/nginx.crt
 OUT=$(eval $DIAGNOSE_CMD) || true
 # Restore
 mv /etc/nginx/ssl/nginx.crt.bak /etc/nginx/ssl/nginx.crt
