@@ -22,8 +22,8 @@ def correlate_state(evidence_list: list[Evidence], catalog: list[Situation]) -> 
     evidence_by_id = {e.id: e for e in evidence_list}
 
     matched_situations = []
-    discrepancies = {}
-    catalog_evidence_ids = set()
+    discrepancies: dict[str, list[str]] = {}
+    catalog_evidence_ids: set[str] = set()
 
     for situation in catalog:
         catalog_evidence_ids.update(situation.signature.keys())
