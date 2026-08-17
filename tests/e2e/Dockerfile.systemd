@@ -29,6 +29,14 @@ RUN chown root:evidencetool /etc/nginx/ssl/nginx.key && chmod 640 /etc/nginx/ssl
 # This mirrors the least-privilege setup documented in README.md.
 RUN sed -i 's/^user www-data;/user evidencetool;/' /etc/nginx/nginx.conf
 
+# nginx -t (used by the nginx.config_valid provider) writes to /var/log/nginx/error.log
+# and /run/nginx.pid even in test mode. Give the evidencetool group write access to both
+# so the provider returns an accurate PASS/FAIL based on config syntax, not file permissions.
+RUN mkdir -p /var/log/nginx /run && \
+    chown root:evidencetool /var/log/nginx && chmod 775 /var/log/nginx && \
+    touch /run/nginx.pid && \
+    chown root:evidencetool /run/nginx.pid && chmod 664 /run/nginx.pid
+
 # Configure Nginx to use the certs
 RUN echo "server {\n\
     listen 443 ssl;\n\
