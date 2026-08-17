@@ -114,13 +114,13 @@ def decide(
                     blocking_evidence=blocking_ev,
                 )
 
-        allowed = False
+        allowed_id = None
         for allow_id in policy.allow:
             if allow_id in situation_ids:
-                allowed = True
+                allowed_id = allow_id
                 break
 
-        if not allowed:
+        if not allowed_id:
             blocking_ev_set = set()
             for allow_id in policy.allow:
                 blocking_ev_set.update(state.discrepancies.get(allow_id, []))
@@ -134,13 +134,13 @@ def decide(
         if policy.human_approval:
             return Decision(
                 status=DecisionStatus.HUMAN_REVIEW,
-                reason="Situation authorized, but this action requires human approval.",
+                reason=f"Situation '{allowed_id}' authorized, but this action requires human approval.",
                 blocking_evidence=[],
             )
 
         return Decision(
             status=DecisionStatus.ALLOW,
-            reason="Situation authorized and no human approval required.",
+            reason=f"Situation '{allowed_id}' authorized and no human approval required.",
             blocking_evidence=[],
         )
 

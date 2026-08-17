@@ -41,7 +41,23 @@ check_result "$OUT" "BLOCK" "NGINX_CONFIG_INVALID"
 echo "Running Scenario B: TLS_CERTIFICATE_EXPIRED"
 # Move valid cert, create an expired one
 mv /etc/nginx/ssl/nginx.crt /etc/nginx/ssl/nginx.crt.bak
-openssl req -x509 -nodes -days -10 -newkey rsa:2048 -keyout /etc/nginx/ssl/nginx.key.tmp -out /etc/nginx/ssl/nginx.crt -subj "/C=US/ST=State/L=City/O=Org/OU=IT/CN=localhost" 2>/dev/null
+python3 -c "
+import datetime
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.x509.oid import NameOID
+key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, 'localhost')])
+now = datetime.datetime.now(datetime.timezone.utc)
+cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name)
+        .public_key(key.public_key()).serial_number(x509.random_serial_number())
+        .not_valid_before(now - datetime.timedelta(days=10))
+        .not_valid_after(now - datetime.timedelta(days=1))
+        .sign(key, hashes.SHA256()))
+open('/etc/nginx/ssl/nginx.crt','wb').write(cert.public_bytes(serialization.Encoding.PEM))
+open('/etc/nginx/ssl/nginx.key.tmp','wb').write(key.private_bytes(encoding=serialization.Encoding.PEM, format=serialization.PrivateFormat.PKCS8, encryption_algorithm=serialization.NoEncryption()))
+"
 setfacl -m g:evidencetool:r /etc/nginx/ssl/nginx.crt
 OUT=$(eval $DIAGNOSE_CMD) || true
 # Restore
@@ -61,19 +77,6 @@ echo "Running Scenario D: NGINX_SERVICE_DOWN"
 systemctl stop nginx
 OUT=$(eval $DIAGNOSE_CMD) || true
 systemctl start nginx
-# The reason for ALLOW is "Situation authorized and no human approval required."
-# Wait, for ALLOW, the reason doesn't explicitly mention "NGINX_SERVICE_DOWN" in the current engine.py!
-# Let's just check for ALLOW.
-check_result_allow() {
-    local out="$1"
-    local status=$(echo "$out" | jq -r '.decision.status')
-    if [ "$status" != "ALLOW" ]; then
-        echo "FAIL: Expected ALLOW, got $status"
-        echo "Output: $out"
-        exit 1
-    fi
-    echo "PASS"
-}
-check_result_allow "$OUT"
+check_result "$OUT" "ALLOW" "NGINX_SERVICE_DOWN"
 
 echo "=== All E2E Tests Passed ==="
