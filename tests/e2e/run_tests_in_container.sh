@@ -40,15 +40,20 @@ check_result "$OUT" "BLOCK" "NGINX_CONFIG_INVALID"
 
 # --- Scenario B: Expired Certificate ---
 echo "Running Scenario B: TLS_CERTIFICATE_EXPIRED"
-# Move valid cert, create an expired one
+# Replace only the cert with an expired one, signed by the EXISTING key so that
+# tls.key_matches_certificate stays PASS and only tls.certificate_valid triggers FAIL.
 mv /etc/nginx/ssl/nginx.crt /etc/nginx/ssl/nginx.crt.bak
 $PYTHON -c "
 import datetime
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives.serialization import load_pem_private_key
 from cryptography.x509.oid import NameOID
-key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+
+# Load the existing private key — cert must be signed with the SAME key
+with open('/etc/nginx/ssl/nginx.key', 'rb') as f:
+    key = load_pem_private_key(f.read(), password=None)
+
 name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, 'localhost')])
 now = datetime.datetime.now(datetime.timezone.utc)
 cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name)
@@ -56,15 +61,13 @@ cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name)
         .not_valid_before(now - datetime.timedelta(days=10))
         .not_valid_after(now - datetime.timedelta(days=1))
         .sign(key, hashes.SHA256()))
-open('/etc/nginx/ssl/nginx.crt','wb').write(cert.public_bytes(serialization.Encoding.PEM))
-open('/etc/nginx/ssl/nginx.key.tmp','wb').write(key.private_bytes(encoding=serialization.Encoding.PEM, format=serialization.PrivateFormat.PKCS8, encryption_algorithm=serialization.NoEncryption()))
+open('/etc/nginx/ssl/nginx.crt', 'wb').write(cert.public_bytes(serialization.Encoding.PEM))
 "
 # Restore correct ownership so evidencetool can read the new cert
 chown root:evidencetool /etc/nginx/ssl/nginx.crt && chmod 644 /etc/nginx/ssl/nginx.crt
 OUT=$(eval $DIAGNOSE_CMD) || true
 # Restore
 mv /etc/nginx/ssl/nginx.crt.bak /etc/nginx/ssl/nginx.crt
-rm -f /etc/nginx/ssl/nginx.key.tmp
 check_result "$OUT" "BLOCK" "TLS_CERTIFICATE_EXPIRED"
 
 # --- Scenario C: Missing Certificate ---
