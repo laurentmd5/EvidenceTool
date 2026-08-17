@@ -19,10 +19,15 @@ RUN mkdir -p /etc/nginx/ssl && \
     -keyout /etc/nginx/ssl/nginx.key -out /etc/nginx/ssl/nginx.crt \
     -subj "/C=US/ST=State/L=City/O=Org/OU=IT/CN=localhost"
 
-# Set ACLs
-RUN setfacl -m g:evidencetool:r /etc/nginx/ssl/nginx.key && \
-    setfacl -m g:evidencetool:r /etc/nginx/ssl/nginx.crt && \
-    setfacl -m d:g:evidencetool:r /etc/nginx/ssl
+# Grant evidencetool group read access to TLS files.
+# The key is 640 (owner=root, group=evidencetool, others=none) — nginx
+# runs as the evidencetool user so it can read it, and no other process can.
+RUN chown root:evidencetool /etc/nginx/ssl/nginx.key && chmod 640 /etc/nginx/ssl/nginx.key && \
+    chown root:evidencetool /etc/nginx/ssl/nginx.crt && chmod 644 /etc/nginx/ssl/nginx.crt
+
+# Run nginx as the evidencetool user so it can read the TLS key.
+# This mirrors the least-privilege setup documented in README.md.
+RUN sed -i 's/^user www-data;/user evidencetool;/' /etc/nginx/nginx.conf
 
 # Configure Nginx to use the certs
 RUN echo "server {\n\
@@ -42,8 +47,9 @@ VOLUME [ "/sys/fs/cgroup" ]
 COPY . /opt/EvidenceTool
 WORKDIR /opt/EvidenceTool
 
+# Install evidencetool + cryptography (needed by Scenario B to generate an expired cert)
 RUN python3 -m venv .venv && \
-    .venv/bin/pip install -e .
+    .venv/bin/pip install -e ".[test]"
 
 # Remove the systemd default targets that cause issues in containers
 RUN cd /lib/systemd/system/sysinit.target.wants/ && ls | grep -v systemd-tmpfiles-setup | xargs rm -f $1 && \
