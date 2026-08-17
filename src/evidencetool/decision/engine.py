@@ -17,7 +17,7 @@ from __future__ import annotations
 from evidencetool.models.correlation import OperationalState
 from evidencetool.models.decision import Decision, DecisionStatus
 from evidencetool.models.evidence import Evidence, EvidenceStatus
-from evidencetool.models.policy import OnUnknown, Policy
+from evidencetool.models.policy import OnUnknown, Policy, PolicySchema
 
 
 def _decide_legacy(evidence: list[Evidence], policy: Policy) -> Decision:
@@ -75,73 +75,72 @@ def _decide_legacy(evidence: list[Evidence], policy: Policy) -> Decision:
     )
 
 
+def _decide_v2(state: OperationalState, policy: Policy) -> Decision:
+    """Decision logic for V2_SITUATIONAL policies."""
+    if state.ambiguous:
+        return Decision(
+            status=DecisionStatus.BLOCK,
+            reason="Operational state is ambiguous due to unresolved or missing evidence.",
+            blocking_evidence=state.unresolved_evidence,
+        )
+
+    situation_ids = {s.id for s in state.situations}
+
+    for blocked_id in policy.blocked_by:
+        if blocked_id in situation_ids:
+            matched_sit = next(s for s in state.situations if s.id == blocked_id)
+            blocking_ev = list(matched_sit.signature.keys())
+            return Decision(
+                status=DecisionStatus.BLOCK,
+                reason=f"Situation '{blocked_id}' is explicitly blocked by policy.",
+                blocking_evidence=blocking_ev,
+            )
+
+    allowed_id = None
+    for allow_id in policy.allow:
+        if allow_id in situation_ids:
+            allowed_id = allow_id
+            break
+
+    if not allowed_id:
+        blocking_ev_set: set[str] = set()
+        for allow_id in policy.allow:
+            blocking_ev_set.update(state.discrepancies.get(allow_id, []))
+        return Decision(
+            status=DecisionStatus.BLOCK,
+            reason="No known situation matches the allowed situations for this action.",
+            blocking_evidence=sorted(blocking_ev_set),
+        )
+
+    if policy.human_approval:
+        return Decision(
+            status=DecisionStatus.HUMAN_REVIEW,
+            reason=f"Situation '{allowed_id}' authorized, but this action requires human approval.",
+            blocking_evidence=[],
+        )
+
+    return Decision(
+        status=DecisionStatus.ALLOW,
+        reason=f"Situation '{allowed_id}' authorized and no human approval required.",
+        blocking_evidence=[],
+    )
+
+
 def decide(
     state_or_evidence: OperationalState | list[Evidence],
-    policy: Policy
+    policy: Policy,
 ) -> Decision:
     """
     Routes to the correct decision engine based on the policy schema.
     """
-    from evidencetool.models.policy import PolicySchema
-
     if policy.schema == PolicySchema.V1_LEGACY:
         if not isinstance(state_or_evidence, list):
-             raise TypeError("V1_LEGACY policy requires list[Evidence]")
+            raise TypeError("V1_LEGACY policy requires list[Evidence]")
         return _decide_legacy(state_or_evidence, policy)
 
     if policy.schema == PolicySchema.V2_SITUATIONAL:
         if not isinstance(state_or_evidence, OperationalState):
             raise TypeError("V2_SITUATIONAL policy requires OperationalState")
-            
-        state = state_or_evidence
-
-        if state.ambiguous:
-            return Decision(
-                status=DecisionStatus.BLOCK,
-                reason="Operational state is ambiguous due to unresolved or missing evidence.",
-                blocking_evidence=state.unresolved_evidence,
-            )
-
-        situation_ids = {s.id for s in state.situations}
-
-        for blocked_id in policy.blocked_by:
-            if blocked_id in situation_ids:
-                matched_sit = next(s for s in state.situations if s.id == blocked_id)
-                blocking_ev = list(matched_sit.signature.keys())
-                return Decision(
-                    status=DecisionStatus.BLOCK,
-                    reason=f"Situation '{blocked_id}' is explicitly blocked by policy.",
-                    blocking_evidence=blocking_ev,
-                )
-
-        allowed_id = None
-        for allow_id in policy.allow:
-            if allow_id in situation_ids:
-                allowed_id = allow_id
-                break
-
-        if not allowed_id:
-            blocking_ev_set = set()
-            for allow_id in policy.allow:
-                blocking_ev_set.update(state.discrepancies.get(allow_id, []))
-                
-            return Decision(
-                status=DecisionStatus.BLOCK,
-                reason="No known situation matches the allowed situations for this action.",
-                blocking_evidence=sorted(list(blocking_ev_set)),
-            )
-
-        if policy.human_approval:
-            return Decision(
-                status=DecisionStatus.HUMAN_REVIEW,
-                reason=f"Situation '{allowed_id}' authorized, but this action requires human approval.",
-                blocking_evidence=[],
-            )
-
-        return Decision(
-            status=DecisionStatus.ALLOW,
-            reason=f"Situation '{allowed_id}' authorized and no human approval required.",
-            blocking_evidence=[],
-        )
+        return _decide_v2(state_or_evidence, policy)
 
     raise ValueError(f"Unknown policy schema: {policy.schema}")
