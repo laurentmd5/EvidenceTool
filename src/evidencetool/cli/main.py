@@ -78,7 +78,7 @@ def diagnose_cmd(  # noqa: C901
             sys.exit(1)
 
     policy = load_policy(policy_path)
-    
+
     catalog_situations = None
     if catalog:
         from evidencetool.diagnostic.loader import load_catalog
