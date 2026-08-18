@@ -55,9 +55,6 @@ class NginxProvider:
         )
 
     def _config_valid(self, config_path: str, host: str | None) -> Observation:
-        import os
-        config_dir = os.path.dirname(config_path) or "/etc/nginx"
-
         method = f"nginx -t -c {config_path} (filtered read-only)"
 
         if not file_exists(config_path, host=host):
@@ -85,11 +82,11 @@ class NginxProvider:
         script = (
             "tmp=$(mktemp) && "
             "sed -e '/^[[:space:]]*pid[[:space:]]/d' -e '/^[[:space:]]*error_log[[:space:]]/d' \"$1\" > \"$tmp\" && "
-            "nginx -t -c \"$tmp\" -p \"$2\" -g \"$3\"; "
+            "nginx -t -c \"$tmp\" -g \"$2\"; "
             "code=$?; rm -f \"$tmp\"; exit $code"
         )
 
-        args = ["sh", "-c", script, "sh", config_path, config_dir, override]
+        args = ["sh", "-c", script, "sh", config_path, override]
         result = run_command(args, host=host)
 
         if not result.ran:
