@@ -236,32 +236,61 @@ def test_scenario_port_conflict(tmp_path, policy, monkeypatch):
     obs_message = evidence_dict["nginx.config_valid"].observation.message
     assert "address already in use" in obs_message
 
-
-def test_nginx_config_valid_never_uses_dash_p(tmp_path, monkeypatch):
+def test_nginx_config_valid_ignores_readonly_errors(tmp_path, monkeypatch):
     """
-    Regression test: Nginx config validation must never use the -p prefix flag.
-    On Ubuntu, setting -p /etc/nginx breaks the resolution of relative load_module
-    paths because they are typically located in /usr/share/nginx/modules.
+    Test that NginxProvider._config_valid correctly ignores [emerg] open() Permission denied
+    errors that occur due to read-only execution context (logs, pids), as long as
+    'syntax is ok' is present.
     """
-    from evidencetool.providers.base import ProviderContext
     from evidencetool.providers.nginx import NginxProvider
 
     dummy_conf = tmp_path / "nginx.conf"
     dummy_conf.write_text("dummy")
 
     provider = NginxProvider()
-    ProviderContext({"config_path": str(dummy_conf)})
 
     def mock_run_command(args, **kwargs):
-        cmd_str = " ".join(args)
-        # Fail the test immediately if -p is found in the shell script or args
-        assert "-p" not in cmd_str, f"Regression: -p flag found in nginx command! args: {args}"
         from unittest.mock import Mock
-        return Mock(returncode=0, stdout="", stderr="")
+        stderr = (
+            "nginx: the configuration file /etc/nginx/nginx.conf syntax is ok\n"
+            "2026/08/18 10:47:11 [emerg] 87#87: open() \"/var/log/nginx/access.log\" failed (13: Permission denied)\n"
+            "nginx: configuration file /etc/nginx/nginx.conf test failed\n"
+        )
+        return Mock(returncode=1, stdout="", stderr=stderr, ran=True)
 
-    monkeypatch.setattr("subprocess.run", mock_run_command)
+    monkeypatch.setattr("evidencetool.providers.nginx.run_command", mock_run_command)
     obs = provider._config_valid(str(dummy_conf), None)
+
     assert obs.value["status"] == "PASS"
+    assert "syntax is ok" in obs.message
+    assert "ignoring read-only" in obs.message
+
+def test_nginx_config_valid_fails_on_real_errors(tmp_path, monkeypatch):
+    """
+    Test that NginxProvider._config_valid fails on real operational errors even if
+    'syntax is ok' is present (e.g. cannot open certificate, not related to logs).
+    """
+    from evidencetool.providers.nginx import NginxProvider
+
+    dummy_conf = tmp_path / "nginx.conf"
+    dummy_conf.write_text("dummy")
+
+    provider = NginxProvider()
+
+    def mock_run_command(args, **kwargs):
+        from unittest.mock import Mock
+        stderr = (
+            "nginx: the configuration file /etc/nginx/nginx.conf syntax is ok\n"
+            "nginx: [emerg] BIO_new_file(\"/etc/nginx/ssl/nginx.crt\") failed (SSL: error:0200100D:system library:fopen:Permission denied)\n"
+            "nginx: configuration file /etc/nginx/nginx.conf test failed\n"
+        )
+        return Mock(returncode=1, stdout="", stderr=stderr, ran=True)
+
+    monkeypatch.setattr("evidencetool.providers.nginx.run_command", mock_run_command)
+    obs = provider._config_valid(str(dummy_conf), None)
+
+    assert obs.value["status"] == "FAIL"
+    assert "BIO_new_file" in obs.message
 
 
 def test_scenario_permission_problem(tmp_path, policy, monkeypatch):
