@@ -243,14 +243,14 @@ def test_nginx_config_valid_never_uses_dash_p(tmp_path, monkeypatch):
     On Ubuntu, setting -p /etc/nginx breaks the resolution of relative load_module
     paths because they are typically located in /usr/share/nginx/modules.
     """
-    from evidencetool.providers.nginx import NginxProvider
     from evidencetool.providers.base import ProviderContext
+    from evidencetool.providers.nginx import NginxProvider
 
     dummy_conf = tmp_path / "nginx.conf"
     dummy_conf.write_text("dummy")
 
     provider = NginxProvider()
-    context = ProviderContext({"config_path": str(dummy_conf)})
+    ProviderContext({"config_path": str(dummy_conf)})
 
     def mock_run_command(args, **kwargs):
         cmd_str = " ".join(args)
