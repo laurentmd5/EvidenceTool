@@ -7,13 +7,13 @@ allow:
   - "NGINX_SERVICE_DOWN"
 
 blocked_by:
-  - "NGINX_CONFIG_INVALID"
   - "TLS_CERTIFICATE_MISSING"
   - "TLS_CERTIFICATE_EXPIRED"
   - "TLS_KEY_MISSING"
   - "TLS_KEY_MISMATCH"
   - "NGINX_SERVICE_NOT_INSTALLED"
   - "DISK_FULL"
+  - "NGINX_CONFIG_INVALID"
 
 required_evidence:
   - id: nginx.config_valid

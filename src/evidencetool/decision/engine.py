@@ -77,13 +77,6 @@ def _decide_legacy(evidence: list[Evidence], policy: Policy) -> Decision:
 
 def _decide_v2(state: OperationalState, policy: Policy) -> Decision:
     """Decision logic for V2_SITUATIONAL policies."""
-    if state.ambiguous:
-        return Decision(
-            status=DecisionStatus.BLOCK,
-            reason="Operational state is ambiguous due to unresolved or missing evidence.",
-            blocking_evidence=state.unresolved_evidence,
-        )
-
     situation_ids = {s.id for s in state.situations}
 
     for blocked_id in policy.blocked_by:
@@ -95,6 +88,13 @@ def _decide_v2(state: OperationalState, policy: Policy) -> Decision:
                 reason=f"Situation '{blocked_id}' is explicitly blocked by policy.",
                 blocking_evidence=blocking_ev,
             )
+
+    if state.ambiguous:
+        return Decision(
+            status=DecisionStatus.BLOCK,
+            reason="Operational state is ambiguous due to unresolved or missing evidence.",
+            blocking_evidence=state.unresolved_evidence,
+        )
 
     allowed_id = None
     for allow_id in policy.allow:
