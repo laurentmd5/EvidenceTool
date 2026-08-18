@@ -58,6 +58,21 @@ class NginxProvider:
         import os
         config_dir = os.path.dirname(config_path) or "/etc/nginx"
 
+        method = f"nginx -t -c {config_path} (filtered read-only)"
+
+        if not file_exists(config_path, host=host):
+            return Observation(
+                id="nginx.config_valid",
+                source="nginx",
+                category="configuration",
+                collector=COLLECTOR,
+                method=method,
+                value={"status": "UNKNOWN"},
+                message="Cannot check validity: configuration file does not exist",
+                observed_at=_now(),
+                host=host,
+            )
+
         override = (
             "pid /tmp/evidencetool-nginx-test.pid; "
             "error_log /tmp/evidencetool-nginx-test-error.log;"
@@ -73,7 +88,6 @@ class NginxProvider:
             "nginx -t -c \"$tmp\" -p \"$2\" -g \"$3\"; "
             "code=$?; rm -f \"$tmp\"; exit $code"
         )
-        method = f"nginx -t -c {config_path} (filtered read-only)"
 
         args = ["sh", "-c", script, "sh", config_path, config_dir, override]
         result = run_command(args, host=host)

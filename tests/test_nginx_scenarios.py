@@ -205,6 +205,8 @@ def test_scenario_port_conflict(tmp_path, policy, monkeypatch):
     )
 
     cert, key = _gen_cert(tmp_path, expired=False)
+    dummy_conf = tmp_path / "nginx.conf"
+    dummy_conf.write_text("dummy")
 
     # Mock run_command to fail when testing nginx config for port conflict
     original_run_command = subprocess.run
@@ -221,7 +223,11 @@ def test_scenario_port_conflict(tmp_path, policy, monkeypatch):
 
     monkeypatch.setattr("subprocess.run", mock_run_command)
 
-    result = diagnose("nginx", policy_with_nginx, context={"certificate_path": str(cert), "private_key_path": str(key)})
+    result = diagnose("nginx", policy_with_nginx, context={
+        "certificate_path": str(cert), 
+        "private_key_path": str(key),
+        "config_path": str(dummy_conf)
+    })
     assert result.decision.status == DecisionStatus.BLOCK
     assert "nginx.config_valid" in result.decision.blocking_evidence
 
