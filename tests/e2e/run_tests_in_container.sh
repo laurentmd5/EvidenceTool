@@ -6,6 +6,14 @@ echo "=== Starting E2E Tests ==="
 # Wait for systemd to fully boot
 sleep 5
 
+# Re-apply ACLs at runtime. POSIX ACLs set during `docker build` (overlayfs layers)
+# are notoriously stripped or ignored when the container starts depending on the host's
+# kernel and docker storage driver. Since the README instructions are for runtime,
+# we simulate them accurately here.
+setfacl -m g:evidencetool:r /etc/nginx/ssl/nginx.key
+setfacl -m g:evidencetool:r /etc/nginx/ssl/nginx.crt
+setfacl -m d:g:evidencetool:r /etc/nginx/ssl
+
 PYTHON="/opt/EvidenceTool/.venv/bin/python3"
 DIAGNOSE_CMD="sudo -u evidencetool /opt/EvidenceTool/.venv/bin/evidencetool diagnose nginx --policy /opt/EvidenceTool/policies/nginx-v2.yaml --catalog /opt/EvidenceTool/catalogs/nginx.yaml -a config_path=/etc/nginx/nginx.conf -a certificate_path=/etc/nginx/ssl/nginx.crt -a private_key_path=/etc/nginx/ssl/nginx.key -a service=nginx --output json"
 
