@@ -224,7 +224,7 @@ def test_scenario_port_conflict(tmp_path, policy, monkeypatch):
     monkeypatch.setattr("subprocess.run", mock_run_command)
 
     result = diagnose("nginx", policy_with_nginx, context={
-        "certificate_path": str(cert), 
+        "certificate_path": str(cert),
         "private_key_path": str(key),
         "config_path": str(dummy_conf)
     })
