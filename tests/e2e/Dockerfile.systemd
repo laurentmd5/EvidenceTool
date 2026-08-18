@@ -19,23 +19,13 @@ RUN mkdir -p /etc/nginx/ssl && \
     -keyout /etc/nginx/ssl/nginx.key -out /etc/nginx/ssl/nginx.crt \
     -subj "/C=US/ST=State/L=City/O=Org/OU=IT/CN=localhost"
 
-# Grant evidencetool group read access to TLS files.
-# The key is 640 (owner=root, group=evidencetool, others=none) — nginx
-# runs as the evidencetool user so it can read it, and no other process can.
-RUN chown root:evidencetool /etc/nginx/ssl/nginx.key && chmod 640 /etc/nginx/ssl/nginx.key && \
-    chown root:evidencetool /etc/nginx/ssl/nginx.crt && chmod 644 /etc/nginx/ssl/nginx.crt
+# Grant evidencetool group read-only access to TLS files via ACL.
+# This mirrors exactly the production setup documented in README.md —
+# nginx keeps its default www-data user, evidencetool only gets read access.
+RUN setfacl -m g:evidencetool:r /etc/nginx/ssl/nginx.key && \
+    setfacl -m g:evidencetool:r /etc/nginx/ssl/nginx.crt && \
+    setfacl -m d:g:evidencetool:r /etc/nginx/ssl
 
-# Run nginx as the evidencetool user so it can read the TLS key.
-# This mirrors the least-privilege setup documented in README.md.
-RUN sed -i 's/^user www-data;/user evidencetool;/' /etc/nginx/nginx.conf
-
-# nginx -t (used by the nginx.config_valid provider) writes to /var/log/nginx/error.log
-# and /run/nginx.pid even in test mode. Give the evidencetool group write access to both
-# so the provider returns an accurate PASS/FAIL based on config syntax, not file permissions.
-RUN mkdir -p /var/log/nginx /run && \
-    chown root:evidencetool /var/log/nginx && chmod 775 /var/log/nginx && \
-    touch /run/nginx.pid && \
-    chown root:evidencetool /run/nginx.pid && chmod 664 /run/nginx.pid
 
 # Configure Nginx to use the certs
 RUN echo "server {\n\
