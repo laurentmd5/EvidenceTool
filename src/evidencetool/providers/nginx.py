@@ -55,20 +55,28 @@ class NginxProvider:
         )
 
     def _config_valid(self, config_path: str, host: str | None) -> Observation:
-        # nginx -t writes transiently to the pid file and error log paths
-        # declared in the config it's testing. EvidenceTool is read-only by
-        # design (NFR-002) — it must never depend on write access to the
-        # real production paths (/run/nginx.pid, /var/log/nginx/error.log)
-        # just to run a syntax check. Override both to a scratch location
-        # nobody else depends on.
+        import os
+        config_dir = os.path.dirname(config_path) or "/etc/nginx"
+
         override = (
             "pid /tmp/evidencetool-nginx-test.pid; "
             "error_log /tmp/evidencetool-nginx-test-error.log;"
         )
-        method = f"nginx -t -c {config_path} -g '{override}'"
-        result = run_command(
-            ["nginx", "-t", "-c", config_path, "-g", override], host=host
+
+        # We use a temporary config file stripped of 'pid' and 'error_log'
+        # to avoid "duplicate directive" errors when passing -g.
+        # NFR-005: To prevent shell injection via config_path, dynamic values
+        # are passed safely as positional arguments to sh -c, rather than interpolated.
+        script = (
+            "tmp=$(mktemp) && "
+            "sed -e '/^[[:space:]]*pid[[:space:]]/d' -e '/^[[:space:]]*error_log[[:space:]]/d' \"$1\" > \"$tmp\" && "
+            "nginx -t -c \"$tmp\" -p \"$2\" -g \"$3\"; "
+            "code=$?; rm -f \"$tmp\"; exit $code"
         )
+        method = f"nginx -t -c {config_path} (filtered read-only)"
+
+        args = ["sh", "-c", script, "sh", config_path, config_dir, override]
+        result = run_command(args, host=host)
 
         if not result.ran:
             status, message = "UNKNOWN", f"Could not run nginx: {result.error}"

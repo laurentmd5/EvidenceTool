@@ -209,7 +209,8 @@ def test_scenario_port_conflict(tmp_path, policy, monkeypatch):
     # Mock run_command to fail when testing nginx config for port conflict
     original_run_command = subprocess.run
     def mock_run_command(args, **kwargs):
-        if "nginx" in args and "-t" in args:
+        cmd_str = " ".join(args)
+        if "nginx" in args and "-t" in args or "nginx -t" in cmd_str:
             from unittest.mock import Mock
             return Mock(
                 returncode=1,

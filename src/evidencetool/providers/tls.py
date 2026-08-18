@@ -147,7 +147,12 @@ class TLSProvider:
             error_msg = cert_result.error if not cert_result.ran else key_result.error
             status, message = "UNKNOWN", f"Could not run openssl to extract moduli: {error_msg}"
         elif cert_result.returncode != 0 or key_result.returncode != 0:
-            status, message = "UNKNOWN", "Failed to extract modulus from certificate or key"
+            parts = []
+            if cert_result.returncode != 0:
+                parts.append(f"certificate: {cert_result.stderr}")
+            if key_result.returncode != 0:
+                parts.append(f"private key: {key_result.stderr}")
+            status, message = "UNKNOWN", f"Failed to extract modulus — {'; '.join(parts)}"
         else:
             cert_modulus = cert_result.stdout.strip()
             key_modulus = key_result.stdout.strip()
