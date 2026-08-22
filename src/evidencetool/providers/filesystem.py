@@ -1,13 +1,15 @@
 """
-Filesystem provider.
+Filesystem provider — per PRODUCT_CONTRACT.md (V0.5 Observability Expansion).
 
 Checks:
   - filesystem.disk_space_available
+  - filesystem.disk_pressure
 """
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Any
 
 from evidencetool.models.observation import Observation
 from evidencetool.providers._shell import get_free_disk_space
@@ -28,7 +30,10 @@ class FilesystemProvider:
         path = context.get("path", "/")
         min_free_bytes = int(context.get("min_free_bytes", str(DEFAULT_MIN_FREE_BYTES)))
         host = context.get("host", "")
-        return [self._disk_space_available(path, min_free_bytes, host)]
+        return [
+            self._disk_space_available(path, min_free_bytes, host),
+            self._disk_pressure(path, min_free_bytes, host),
+        ]
 
     def _disk_space_available(self, path: str, min_free_bytes: int, host: str | None) -> Observation:
         method = f"get_free_disk_space({path})"
@@ -64,6 +69,34 @@ class FilesystemProvider:
             method=method,
             value={"status": status, "free_bytes": free_bytes},
             message=message,
+            observed_at=_now(),
+            host=host,
+        )
+
+    def _disk_pressure(self, path: str, min_free_bytes: int, host: str | None) -> Observation:
+        method = f"check_disk_pressure({path})"
+        free_bytes = get_free_disk_space(path, host=host)
+
+        if free_bytes is None:
+            val: dict[str, Any] = {"status": "UNKNOWN"}
+            msg = f"Could not determine disk pressure for {path}"
+        elif free_bytes < min_free_bytes:
+            val = {"status": "FAIL", "pressure": True, "free_bytes": free_bytes}
+            free_mb = free_bytes / (1024 * 1024)
+            msg = f"Disk pressure detected: only {free_mb:.0f}MB remaining on {path}"
+        else:
+            val = {"status": "PASS", "pressure": False, "free_bytes": free_bytes}
+            free_mb = free_bytes / (1024 * 1024)
+            msg = f"No disk pressure: {free_mb:.0f}MB available on {path}"
+
+        return Observation(
+            id="filesystem.disk_pressure",
+            source="filesystem",
+            category="disk",
+            collector=COLLECTOR,
+            method=method,
+            value=val,
+            message=msg,
             observed_at=_now(),
             host=host,
         )

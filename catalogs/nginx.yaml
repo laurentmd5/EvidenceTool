@@ -45,3 +45,13 @@ situations:
     description: "Disk space is full"
     signature:
       filesystem.disk_space_available: FAIL
+
+  DISK_PRESSURE:
+    description: "Filesystem is under severe disk pressure"
+    signature:
+      filesystem.disk_pressure: FAIL
+
+  NETWORK_UNREACHABLE:
+    description: "Network host or port is unreachable"
+    signature:
+      network.host_reachable: FAIL

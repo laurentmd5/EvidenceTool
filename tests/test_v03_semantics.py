@@ -239,7 +239,7 @@ def test_real_catalog_loading():
     catalog_path = Path(__file__).resolve().parents[1] / "catalogs" / "nginx.yaml"
     situations = load_catalog(str(catalog_path))
 
-    assert len(situations) == 8
+    assert len(situations) == 10
 
     # Quick sanity check
     service_down = next(s for s in situations if s.id == "NGINX_SERVICE_DOWN")

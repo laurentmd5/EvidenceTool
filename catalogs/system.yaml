@@ -1,0 +1,21 @@
+situations:
+  DISK_PRESSURE:
+    description: "Filesystem is under severe disk pressure"
+    signature:
+      filesystem.disk_pressure: FAIL
+
+  NETWORK_UNREACHABLE:
+    description: "Network host or port is unreachable"
+    signature:
+      network.host_reachable: FAIL
+
+  PROCESS_CRASHED:
+    description: "Process is not running or in zombie state"
+    signature:
+      process.running: FAIL
+
+  PROCESS_HEALTHY:
+    description: "Process is actively running with no zombies"
+    signature:
+      process.running: PASS
+      process.zombie: PASS
