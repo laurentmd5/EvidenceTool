@@ -1,0 +1,28 @@
+version: "1.0"
+action: restart_container
+risk: LOW
+schema: "v2"
+
+allow:
+  - CONTAINER_STOPPED
+  - CONTAINER_CRASH_LOOP
+  - CONTAINER_UNHEALTHY
+
+blocked_by:
+  - CONTAINER_NOT_FOUND
+
+required_evidence:
+  - id: container.exists
+    on_unknown: BLOCK
+  - id: container.running
+    on_unknown: BLOCK
+  - id: container.restarting
+    on_unknown: IGNORE
+  - id: container.health
+    on_unknown: IGNORE
+  - id: container.exit_code
+    on_unknown: IGNORE
+  - id: container.logs
+    on_unknown: IGNORE
+
+human_approval: false

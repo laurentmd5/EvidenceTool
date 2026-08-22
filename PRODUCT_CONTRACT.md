@@ -394,3 +394,26 @@ The Situational Engine model introduced in V0.3 is formally frozen:
    - If no blocking situation is active, `state.ambiguous` is evaluated. If `ambiguous` is true, the engine fails closed with `BLOCK`.
    - Next, `policy.allow` situations are checked. If an allowed situation is matched, and no `human_approval` is required, `ALLOW` is returned.
    - If `human_approval` is required, `HUMAN_REVIEW` is returned.
+
+---
+
+## 15. Docker Environment & Privilege Trade-off (V0.4 Contract)
+
+### 15.1 Privilege Asymmetry & Security Trade-off
+
+The Docker environment introduces a fundamental privilege asymmetry compared to native filesystem / TLS inspection:
+- Granting `evidencetool` read access to TLS certificates via POSIX ACLs is strictly non-destructive and cannot lead to code execution or privilege escalation.
+- Granting access to the standard Docker daemon socket (`/var/run/docker.sock`) is **practically equivalent to root access on the host**, as the Docker API inherently allows mounting the host root filesystem (`-v /:/host`) into a container.
+
+### 15.2 Invariants and Guardrails for Docker Provider
+
+To preserve the founding principle (*read-only observer, never an executor*):
+1. **Strict Read-Only Provider Invariant**: The `docker` provider executes **only non-mutating subcommands**:
+   - `docker inspect <container>`
+   - `docker logs --tail <N> <container>`
+   - `docker ps`
+   The provider NEVER invokes `docker run`, `docker exec`, `docker stop`, `docker restart`, `docker kill`, or `docker rm`.
+2. **Command Construction**: As with all providers, commands are strictly constructed as argument lists (`["docker", "inspect", ...]`) and executed via `run_command(args, host=host)` without a shell.
+3. **Recommended Host Isolation**:
+   - In standard environments: Assign `evidencetool` to the `docker` group or configure socket ACLs with explicit documentation of the host trust boundary.
+   - In hardened multi-tenant environments: Use a read-only Docker socket proxy (filtering to allow only `GET /containers/json`, `GET /containers/{id}/json`, `GET /containers/{id}/logs`, while rejecting all `POST`/`DELETE`/`PUT` requests).

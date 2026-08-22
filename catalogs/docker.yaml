@@ -1,0 +1,30 @@
+situations:
+  CONTAINER_HEALTHY:
+    description: "Container exists, is running, and reports healthy"
+    signature:
+      container.exists: PASS
+      container.running: PASS
+      container.health: PASS
+      container.exit_code: PASS
+
+  CONTAINER_STOPPED:
+    description: "Container exists but is stopped (not running)"
+    signature:
+      container.exists: PASS
+      container.running: FAIL
+
+  CONTAINER_CRASH_LOOP:
+    description: "Container is in an active restart crash loop"
+    signature:
+      container.restarting: FAIL
+
+  CONTAINER_UNHEALTHY:
+    description: "Container is running but its health check failed"
+    signature:
+      container.running: PASS
+      container.health: FAIL
+
+  CONTAINER_NOT_FOUND:
+    description: "Container does not exist on the Docker host"
+    signature:
+      container.exists: FAIL
