@@ -14,13 +14,13 @@ Currently, EvidenceTool is in pre-release (`0.3.0`). Security updates will be ap
 **DO NOT** create a public GitHub issue for security vulnerabilities.
 This tool accesses sensitive infrastructure, including private keys and production servers via SSH. We take security extremely seriously.
 
-Please report vulnerabilities privately via GitHub Security Advisories or by contacting the maintainer directly at `security@example.com`.
+Please report vulnerabilities privately via [GitHub Security Advisories](https://github.com/laurentmd5/EvidenceTool/security/advisories) or by contacting the maintainer directly at `laurent@mavoungou.net`.
 
-We will try to respond to your report within 48 hours.
+We will acknowledge your report within 48 hours and provide a coordinated disclosure timeline.
 
 ## Scope
 Vulnerabilities of high interest include:
 - Shell injection in providers (building commands as strings instead of lists).
-- Arbitrary file read/write.
-- Circumvention of the `Decision` integrity (forcing an `ALLOW` incorrectly).
-- Any leakage of private keys read by the TLS provider.
+- Arbitrary file read/write or privilege escalation.
+- Circumvention of `Decision` integrity (forcing an `ALLOW` on invalid or ambiguous states).
+- Any leakage of private keys or sensitive credentials inspected during diagnosis.

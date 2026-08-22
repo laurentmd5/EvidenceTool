@@ -259,11 +259,11 @@ def test_H_structural_no_decision_imports_in_providers():
     Ensures that no provider module imports policy, decision, or correlation directly.
     This guarantees the unidirectional architecture: Providers only know about Observation.
     """
-    from pathlib import Path
     import ast
+    from pathlib import Path
 
     provider_dir = Path(__file__).parent.parent / "src" / "evidencetool" / "providers"
-    
+
     banned_imports = {
         "evidencetool.policy",
         "evidencetool.decision",
@@ -275,9 +275,9 @@ def test_H_structural_no_decision_imports_in_providers():
     for py_file in provider_dir.glob("*.py"):
         if py_file.name == "__init__.py":
             continue
-            
+
         tree = ast.parse(py_file.read_text(encoding="utf-8"))
-        
+
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:

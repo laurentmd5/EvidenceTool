@@ -366,9 +366,11 @@ def test_07_full_stack_normal_evaluation_allows(tmp_path, policy, monkeypatch):
 def test_json_schema_validation(tmp_path, policy, monkeypatch):
     import json
     from pathlib import Path
+
     import jsonschema
+
     from evidencetool.cli.render import to_json
-    
+
     cert, key = _gen_cert(tmp_path, expired=False)
 
     # Mock openssl so it allows
@@ -385,10 +387,10 @@ def test_json_schema_validation(tmp_path, policy, monkeypatch):
 
     result = diagnose("nginx", policy, context={"certificate_path": str(cert), "private_key_path": str(key)})
     json_result = json.loads(to_json(result))
-    
+
     schema_path = Path(__file__).parent.parent / "schemas" / "diagnosis-result.schema.json"
     with open(schema_path) as f:
         schema = json.load(f)
-        
+
     jsonschema.validate(instance=json_result, schema=schema)
 

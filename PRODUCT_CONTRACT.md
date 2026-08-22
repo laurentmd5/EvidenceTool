@@ -1,8 +1,8 @@
 # EvidenceTool — PRODUCT_CONTRACT.md
 
-**Version:** 2.0 (V0.2 contract)
-**Status:** Locked for V0.2 vertical slice implementation
-**Scope:** This document defines the minimal functional contract that the V0.2 codebase must respect.
+**Version:** 3.0 (V0.3 Situational Contract)
+**Status:** Locked and frozen for V0.3 release
+**Scope:** This document defines the minimal functional and architectural contract that the EvidenceTool codebase must respect.
 
 ---
 
@@ -10,28 +10,32 @@
 
 > EvidenceTool does not automate actions first. It makes operational decisions explainable first.
 
-EvidenceTool separates **observation**, **recommendation**, **authorization**, and **execution**. V0.1 covers only the first two — it never modifies the system it inspects.
+EvidenceTool separates **observation**, **recommendation**, **authorization**, and **execution**. It never modifies the system it inspects.
 
 ---
 
-## 1. Scope V0.2
+## 1. Scope V0.2 & V0.3
 
 **Definition:**
 
 > A read-only operational evidence and decision tool for diagnosing production incidents and determining whether a proposed remediation action is sufficiently justified by available evidence.
 
-**Vertical slice — the only thing V0.2 must prove end-to-end:**
+**Vertical slice flow:**
 
 ```
-Nginx incident
-      ↓
-collect evidence
-      ↓
-evaluate evidence
-      ↓
-evaluate policy
-      ↓
-produce decision
+Incident
+   ↓
+collect observations (Providers)
+   ↓
+evaluate evidence (PASS / FAIL / UNKNOWN)
+   ↓
+correlate state (Situations & OperationalState)
+   ↓
+evaluate policy (V1 Legacy OR V2 Situational)
+   ↓
+produce decision (BLOCK / HUMAN_REVIEW / ALLOW)
+   ↓
+validate decision integrity (Invariants verified)
 ```
 
 **In scope:** VPS/Linux → Nginx → TLS/certificates → systemd → filesystem.
@@ -81,8 +85,6 @@ Freshness is derived from `observed_at` relative to evaluation time, using a def
 - `FRESH`: observed less than **60 seconds** before evaluation.
 - `STALE`: observed 60 seconds or more before evaluation.
 
-This threshold is a V0.1 default, not yet configurable per source. It may become per-provider configurable in a later version — this is noted as a known limitation (Section 10), not solved now.
-
 ---
 
 ## 3. Evidence States
@@ -95,9 +97,7 @@ Three states only:
 
 **Explicit rule:**
 
-> `UNKNOWN ≠ FAIL`. UNKNOWN is a distinct state. Whether it blocks a decision depends on the policy's per-evidence `on_unknown` directive (Section 4), not on a universal conversion rule.
-
-There is no implicit global mapping from `UNKNOWN` to `FAIL`. Every required evidence item must declare its own `on_unknown` behavior in the policy. If a policy omits it, the engine applies the default in Section 4.1 (fail-closed).
+> `UNKNOWN ≠ FAIL`. UNKNOWN is a distinct state. Whether it blocks a decision depends on the policy's per-evidence `on_unknown` directive (Section 4) or situational catalog resolution (Section 14), not on an arbitrary conversion rule.
 
 ---
 
@@ -130,7 +130,7 @@ required_evidence:
 
 > **Default: `BLOCK`.**
 
-This preserves fail-closed behavior (NFR-001) as the baseline. A policy author must actively opt an evidence item into `IGNORE` — silence never grants leniency.
+This preserves fail-closed behavior as the baseline. A policy author must actively opt an evidence item into `IGNORE` — silence never grants leniency.
 
 ---
 
@@ -150,68 +150,13 @@ When multiple conditions could apply simultaneously, they are resolved in this f
 BLOCK  >  HUMAN_REVIEW  >  ALLOW
 ```
 
-Concretely: if any required evidence resolves to a blocking state (Section 4), the decision is `BLOCK` — **regardless of risk level or `human_approval` setting**. A blocked action is never eligible for human review; there is nothing to review until the evidence itself is fixed. `HUMAN_REVIEW` only applies when all required evidence requirements are satisfied but the policy's risk/approval settings still demand a human decision.
-
-### 5.2 Worked examples
-
-**Case 1 — ALLOW**
-```
-config.valid       PASS
-certificate.exists PASS
-private_key.exists PASS
-risk               LOW
-human_approval      false
-→ ALLOW
-```
-
-**Case 2 — BLOCK (evidence failure)**
-```
-config.valid       FAIL
-certificate.exists PASS
-private_key.exists PASS
-→ BLOCK
-```
-
-**Case 3 — HUMAN_REVIEW**
-```
-config.valid       PASS
-certificate.exists PASS
-private_key.exists PASS
-risk               CRITICAL
-human_approval      true
-→ HUMAN_REVIEW
-```
-
-**Case 4 — BLOCK takes precedence over HUMAN_REVIEW**
-```
-config.valid       FAIL
-risk               CRITICAL
-human_approval      true
-→ BLOCK   (not HUMAN_REVIEW — precedence rule applies)
-```
-
-**Case 5 — UNKNOWN with on_unknown: BLOCK**
-```
-certificate.exists UNKNOWN   (on_unknown: BLOCK)
-config.valid        PASS
-private_key.exists  PASS
-→ BLOCK
-```
-
-**Case 6 — UNKNOWN with on_unknown: IGNORE**
-```
-disk_io             UNKNOWN   (on_unknown: IGNORE, not in required_evidence's blocking set)
-config.valid        PASS
-certificate.exists  PASS
-private_key.exists  PASS
-→ ALLOW   (disk_io noted as unverifiable, does not block)
-```
+Concretely: if any required evidence resolves to a blocking state (Section 4) or a blocked situation is active (Section 14), the decision is `BLOCK` — **regardless of risk level or `human_approval` setting**. A blocked action is never eligible for human review. `HUMAN_REVIEW` only applies when all required evidence requirements are satisfied but the policy's risk/approval settings still demand human sign-off.
 
 ---
 
 ## 6. Risk Model
 
-Four levels, V0.1:
+Four levels:
 
 ```
 LOW
@@ -222,46 +167,48 @@ CRITICAL
 
 **Rule:** risk is declared by the policy author, never inferred or estimated by an AI component.
 
-```yaml
-action: restart_nginx
-risk: LOW
-```
-
-This is a governance decision, not a computed one. No component in V0.1 (or any future version) may output a phrase like "I estimate this action to be low risk" as the source of truth for the `risk` field.
-
 ---
 
 ## 7. Policy Contract
 
-V0.1 policies are YAML. This is a prototyping choice, not a commitment to a final policy engine (YAML vs. OPA/Rego is deferred — see Section 10).
-
 ```yaml
-version: "1"
-
+version: "1.0"
 action: restart_nginx
-
 risk: LOW
+schema: "v2"
+
+allow:
+  - NGINX_SERVICE_DOWN
+
+blocked_by:
+  - TLS_CERTIFICATE_MISSING
+  - TLS_CERTIFICATE_EXPIRED
+  - TLS_KEY_MISSING
+  - TLS_KEY_MISMATCH
+  - NGINX_SERVICE_NOT_INSTALLED
+  - DISK_FULL
+  - NGINX_CONFIG_INVALID
 
 required_evidence:
-  - id: nginx.config.valid
+  - id: nginx.config_valid
     on_unknown: BLOCK
-  - id: tls.certificate.exists
+  - id: tls.certificate_exists
     on_unknown: BLOCK
-  - id: tls.private_key.exists
+  - id: tls.certificate_valid
     on_unknown: BLOCK
+  - id: tls.private_key_exists
+    on_unknown: BLOCK
+  - id: tls.key_matches_certificate
+    on_unknown: BLOCK
+  - id: systemd.service_exists
+    on_unknown: BLOCK
+  - id: systemd.service_active
+    on_unknown: IGNORE
+  - id: filesystem.disk_space_available
+    on_unknown: IGNORE
 
 human_approval: false
 ```
-
-**Field reference:**
-
-| Field | Required | Notes |
-|---|---|---|
-| `version` | yes | Policy schema version, string |
-| `action` | yes | Identifier of the proposed action, never executed in V0.1 |
-| `risk` | yes | One of the four levels in Section 6 |
-| `required_evidence` | yes | List of `{id, on_unknown}` objects (Section 4) |
-| `human_approval` | yes | Boolean; if `true`, forces `HUMAN_REVIEW` when no blocking evidence exists |
 
 ---
 
@@ -286,33 +233,12 @@ The JSON is the real contract. The CLI terminal output is a renderer over this J
         "source": "nginx",
         "category": "configuration",
         "collector": "nginx_provider",
-        "method": "nginx -t -c /etc/nginx/nginx.conf",
+        "method": "env LC_ALL=C LANG=C nginx -t -c /etc/nginx/nginx.conf",
         "value": {
           "status": "FAIL",
           "stderr": "nginx: [emerg] open() \"/etc/nginx/nginx.conf\" failed"
         },
         "message": "nginx -t failed: nginx: [emerg] open() \"/etc/nginx/nginx.conf\" failed",
-        "observed_at": "2026-08-12T08:30:00Z",
-        "collected_at": "2026-08-12T08:30:01Z",
-        "host": "prod-web-01"
-      },
-      "is_stale": false
-    },
-    {
-      "id": "tls.certificate_exists",
-      "status": "PASS",
-      "message": "Certificate found at /etc/letsencrypt/live/example.com/fullchain.pem",
-      "observation": {
-        "id": "tls.certificate_exists",
-        "source": "tls",
-        "category": "certificate",
-        "collector": "tls_provider",
-        "method": "file_exists(/etc/letsencrypt/live/example.com/fullchain.pem)",
-        "value": {
-          "status": "PASS",
-          "path": "/etc/letsencrypt/live/example.com/fullchain.pem"
-        },
-        "message": "Certificate found at /etc/letsencrypt/live/example.com/fullchain.pem",
         "observed_at": "2026-08-12T08:30:00Z",
         "collected_at": "2026-08-12T08:30:01Z",
         "host": "prod-web-01"
@@ -328,9 +254,9 @@ The JSON is the real contract. The CLI terminal output is a renderer over this J
 
   "decision": {
     "status": "BLOCK",
-    "reason": "Required evidence failed",
+    "reason": "Situation 'NGINX_CONFIG_INVALID' is explicitly blocked by policy.",
     "blocking_evidence": [
-      "nginx.config.valid"
+      "nginx.config_valid"
     ]
   },
 
@@ -340,32 +266,9 @@ The JSON is the real contract. The CLI terminal output is a renderer over this J
 }
 ```
 
-`decision.status` is always one of `ALLOW` / `BLOCK` / `HUMAN_REVIEW` (Section 5). `decision.blocking_evidence` lists the evidence IDs that caused a `BLOCK`, resolved per the rules in Section 4 and the precedence in Section 5.1. `decision.reason` is a short, deterministic, human-readable string — no free-form LLM generation in V0.1 (per NFR-004 and Section 6).
-
-Example CLI rendering of the same JSON:
-
-```
-✓ tls.certificate.exists
-✗ nginx.config.valid
-
-Policy:
-restart_nginx
-
-Decision:
-BLOCK
-
-Reason:
-Required evidence failed.
-
-Blocking evidence:
-- nginx.config.valid
-```
-
 ---
 
 ## 9. CLI Contract
-
-V0.2 stays intentionally small — four invocation shapes:
 
 ```bash
 # Human-readable diagnosis
@@ -381,53 +284,44 @@ evidencetool diagnose nginx --policy policies/nginx.yaml
 evidencetool diagnose nginx --host prod-web-01
 ```
 
-No other subcommands are in scope for V0.2.
-
 ---
 
 ## 10. Known limitations
 
-V0.2 explicitly does **not**:
+EvidenceTool explicitly does **not**:
 
 - modify the system in any way;
 - automatically restart or remediate anything;
 - perform auto-remediation of any kind;
-- support Docker or Kubernetes (planned for later versions, same evidence/decision engine);
+- support Docker or Kubernetes (planned for V0.4 / V0.5);
 - use an LLM anywhere in the evidence, risk, or decision path;
 - expose a dashboard or web UI;
-- compute a single aggregate 0–100 evidence score (deliberately rejected — see evidence model discussion);
-- perform probabilistic or autonomous root-cause analysis;
-- decide between a custom YAML policy engine and OPA/Rego — this choice is deferred; the policy engine is treated as swappable (`policy/local/` vs. `policy/opa/`) so the decision doesn't block V0.1;
-- make freshness thresholds configurable per source (fixed at 60s for all sources in V0.1).
-
-**Explicitly acknowledged gap:**
-
-> `Relevance` and `Consistency` (from the five evidence dimensions: Presence, Freshness, Validity, Relevance, Consistency) are not meaningfully exercised by a single-provider (Nginx-only) vertical slice. They require correlation across multiple evidence sources (e.g. Nginx + systemd + filesystem is a start; Docker + Prometheus + Loki, or Kubernetes + Prometheus + Loki, will exercise them properly). V0.1 evidence items may carry these fields, but their evaluation logic is not considered validated until a multi-provider scenario is built and tested.
+- compute a single aggregate 0–100 evidence score;
+- perform probabilistic or autonomous root-cause analysis.
 
 ---
 
 ## 11. Definition of done for the vertical slice
 
-The V0.1 vertical slice is considered complete when this exact flow runs end-to-end against a real (or reproducibly simulated) broken Nginx service:
+The vertical slice is considered complete when this flow runs end-to-end against real (or reproducibly simulated) broken services:
 
 ```
-Nginx broken
+Service broken
      ↓
 Providers (systemd, nginx, tls, filesystem)
      ↓
 Evidence (conforming to Section 2)
      ↓
-Policy evaluation (conforming to Sections 4, 5, 7)
+State Correlation (Situations & OperationalState)
      ↓
-Decision (BLOCK, per the worked examples in Section 5.2)
+Policy evaluation (conforming to Sections 4, 5, 7, 14)
+     ↓
+Decision Integrity validation (Section 13)
      ↓
 JSON output (conforming to Section 8)
-     ↓
-CLI rendering (conforming to Section 8)
 ```
 
-At minimum, the following scenarios (from validation Phase 2) must each produce the correct decision per this contract before the contract is considered proven:
-
+At minimum, the following scenarios must produce the exact deterministic decision per this contract:
 1. Missing certificate
 2. Expired certificate
 3. Certificate/key mismatch
@@ -436,13 +330,11 @@ At minimum, the following scenarios (from validation Phase 2) must each produce 
 6. Permission problem
 7. Port conflict
 
-Any scenario that produces a decision inconsistent with this contract means either the contract or the implementation is wrong — and the contract should be revised deliberately, not silently overridden in code.
-
 ---
 
 ## 12. SLI/SLO Contract
 
-EvidenceTool defines clear Service Level Indicators (SLIs) and Objectives (SLOs) to ensure it is observable and trustworthy.
+EvidenceTool defines Service Level Indicators (SLIs) and Objectives (SLOs) to ensure it is observable and trustworthy.
 A critical distinction in EvidenceTool is:
 > **RUN SUCCESS ≠ OPERATIONAL SUCCESS**
 
@@ -465,13 +357,40 @@ A run that correctly diagnoses a broken system and returns `BLOCK` is a **succes
 - `evidencetool_decision{status="ALLOW"|"BLOCK"|"HUMAN_REVIEW"}`: Gauge (1 or 0) indicating the decision of the last run.
 - `evidencetool_evidence{status="PASS"|"FAIL"|"UNKNOWN"}`: Gauge indicating the count of each evidence status in the last run.
 
-*Note: Persistent Counters (e.g. `evidencetool_runs_total`) are deferred. High cardinality labels (e.g., incident_id, hostname) are explicitly omitted to prevent metric explosion.*
-
 ### 12.2 SLO
 
 **SLO — Diagnostic execution reliability**
 > ≥ 99.5% of scheduled EvidenceTool runs complete successfully over a rolling 30-day window.
- 
- # #   1 3 .   V 0 . 3   S i t u a t i o n a l   C o n t r a c t      f r o z e n  
- T h e   S i t u a t i o n ,   O p e r a t i o n a l S t a t e ,   a n d   C a t a l o g   m o d e l s   i n t r o d u c e d   i n   V 0 . 3   a r e   f o r m a l l y   f r o z e n .   T h e   D e c i s i o n   E n g i n e   V 2 _ S I T U A T I O N A L   l o g i c a l l y   e v a l u a t e s   s t a t e   b a s e d   o n   d e f i n i t i v e l y   m a p p e d   S i t u a t i o n s ,   s t r i c t l y   e v a l u a t i n g   b l o c k e d _ b y   s i t u a t i o n s   p r i o r   t o   c o n c l u d i n g   a n   a m b i g u o u s   o p e r a t i o n a l   s t a t e .   T h i s   i s   p a r t   o f   t h e   n o n - n e g o t i a b l e   c o n t r a c t .  
- 
+
+---
+
+## 13. Decision Integrity Contract
+
+Decision integrity is an invariant mathematical property enforced before any decision leaves the engine:
+
+1. **Precedence Invariant**: `BLOCK > HUMAN_REVIEW > ALLOW` always holds. No policy, risk score, or caller parameter can elevate a failing or blocked state to `ALLOW`.
+2. **Inviolable Rules**:
+   - If any required evidence has status `FAIL`, the decision MUST be `BLOCK`.
+   - If an operational state is `ambiguous` (contains unresolved `UNKNOWN` evidence in catalog signatures without an explicit match on a blocked situation), the decision MUST be `BLOCK` (fail-closed).
+   - If an active situation is listed in `policy.blocked_by`, the decision MUST be `BLOCK`.
+   - If `policy.human_approval` is `true` and no blocking state exists, the decision MUST be `HUMAN_REVIEW`, NEVER `ALLOW`.
+3. **Runtime Validation**:
+   - `validate_decision_integrity(decision, policy, evidence, state)` is executed on every diagnosis result.
+   - Any integrity violation sets `metrics.success = False` and forces CLI exit code `3` (`INTEGRITY_VIOLATION`).
+
+---
+
+## 14. V0.3 Situational Contract — frozen
+
+The Situational Engine model introduced in V0.3 is formally frozen:
+
+1. **Situations**: Discrete operational states defined by unambiguous multi-evidence signatures (`catalogs/*.yaml`).
+2. **OperationalState**:
+   - Correlates collected `Evidence` against situation signatures.
+   - Computes active situations, situation discrepancies, and unresolved evidence.
+   - Marks `ambiguous = True` when key signature evidence is `UNKNOWN` and no deterministic situation can be matched.
+3. **Evaluation Order in V2_SITUATIONAL**:
+   - Explicit root causes (`policy.blocked_by`) are evaluated against active situations FIRST. If a root cause is definitively proven (e.g. `TLS_CERTIFICATE_MISSING`), `BLOCK` is returned immediately for that root cause.
+   - If no blocking situation is active, `state.ambiguous` is evaluated. If `ambiguous` is true, the engine fails closed with `BLOCK`.
+   - Next, `policy.allow` situations are checked. If an allowed situation is matched, and no `human_approval` is required, `ALLOW` is returned.
+   - If `human_approval` is required, `HUMAN_REVIEW` is returned.
