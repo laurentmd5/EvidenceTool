@@ -1,0 +1,72 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Diagnosis Result",
+  "type": "object",
+  "required": ["incident", "evidence", "policy", "decision", "recommendation"],
+  "properties": {
+    "incident": {
+      "type": "object",
+      "required": ["id", "type"],
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string" }
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "status", "message", "observation", "is_stale"],
+        "properties": {
+          "id": { "type": "string" },
+          "status": { "enum": ["PASS", "FAIL", "UNKNOWN"] },
+          "message": { "type": "string" },
+          "observation": {
+            "type": "object",
+            "required": ["id", "source", "category", "collector", "method", "value", "message", "observed_at", "collected_at", "host"],
+            "properties": {
+              "id": { "type": "string" },
+              "source": { "type": "string" },
+              "category": { "type": "string" },
+              "collector": { "type": "string" },
+              "method": { "type": "string" },
+              "value": { "type": ["object", "string", "number", "boolean", "null"] },
+              "message": { "type": "string" },
+              "observed_at": { "type": "string", "format": "date-time" },
+              "collected_at": { "type": "string", "format": "date-time" },
+              "host": { "type": ["string", "null"] }
+            }
+          },
+          "is_stale": { "type": "boolean" }
+        }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "required": ["action", "risk"],
+      "properties": {
+        "action": { "type": "string" },
+        "risk": { "type": "string" }
+      }
+    },
+    "decision": {
+      "type": "object",
+      "required": ["status", "reason", "blocking_evidence"],
+      "properties": {
+        "status": { "enum": ["ALLOW", "BLOCK", "HUMAN_REVIEW"] },
+        "reason": { "type": "string" },
+        "blocking_evidence": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "recommendation": {
+      "type": "object",
+      "required": ["action"],
+      "properties": {
+        "action": { "type": "string" }
+      }
+    }
+  }
+}

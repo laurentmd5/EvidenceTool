@@ -362,3 +362,33 @@ def test_07_full_stack_normal_evaluation_allows(tmp_path, policy, monkeypatch):
     result = diagnose("nginx", policy, context={"certificate_path": str(cert), "private_key_path": str(key)})
     assert result.decision.status == DecisionStatus.ALLOW
     assert result.decision.blocking_evidence == []
+
+def test_json_schema_validation(tmp_path, policy, monkeypatch):
+    import json
+    from pathlib import Path
+    import jsonschema
+    from evidencetool.cli.render import to_json
+    
+    cert, key = _gen_cert(tmp_path, expired=False)
+
+    # Mock openssl so it allows
+    original_run_command = subprocess.run
+    def mock_run_command(args, **kwargs):
+        if "openssl" in args:
+            from unittest.mock import Mock
+            if "-checkend" in args:
+                return Mock(returncode=0, stdout="", stderr="")
+            if "-modulus" in args:
+                return Mock(returncode=0, stdout="Modulus=ABCD", stderr="")
+        return original_run_command(args, **kwargs)
+    monkeypatch.setattr("subprocess.run", mock_run_command)
+
+    result = diagnose("nginx", policy, context={"certificate_path": str(cert), "private_key_path": str(key)})
+    json_result = json.loads(to_json(result))
+    
+    schema_path = Path(__file__).parent.parent / "schemas" / "diagnosis-result.schema.json"
+    with open(schema_path) as f:
+        schema = json.load(f)
+        
+    jsonschema.validate(instance=json_result, schema=schema)
+

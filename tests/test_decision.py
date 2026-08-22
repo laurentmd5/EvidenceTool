@@ -197,6 +197,7 @@ def test_precedence_invariant_block_beats_human_review_beats_allow(
 
 
 # --- Decision Integrity Tests ---
+# DO NOT WEAKEN — see PRODUCT_CONTRACT.md Section 12 (Integrity)
 
 def test_10_integrity_allow_with_fail(observation_factory, policy_factory):
     from evidencetool.decision.integrity import validate_decision_integrity
@@ -257,4 +258,47 @@ def test_13_integrity_precedence(observation_factory, policy_factory):
 
     fake_review = Decision(status=DecisionStatus.HUMAN_REVIEW, blocking_evidence=["e1"], reason="test")
     assert not validate_decision_integrity(fake_review, policy, evidence).is_valid
+    
+    # review without review flag
+    assert not validate_decision_integrity(fake_review, policy, evidence).is_valid
 
+def test_legacy_decision_missing_observation():
+    from evidencetool.models.policy import Policy, PolicySchema, EvidenceRequirement, OnUnknown, RiskLevel
+    from evidencetool.decision.engine import decide
+    
+    policy = Policy(
+        version="1",
+        action="test",
+        schema=PolicySchema.V1_LEGACY,
+        risk=RiskLevel.LOW,
+        required_evidence=[
+            EvidenceRequirement(id="missing.evidence", on_unknown=OnUnknown.BLOCK)
+        ]
+    )
+    decision = decide([], policy)
+    assert decision.status.value == "BLOCK"
+    assert "missing.evidence" in decision.blocking_evidence
+
+def test_decide_type_error_legacy():
+    from evidencetool.models.policy import Policy, PolicySchema, RiskLevel
+    from evidencetool.decision.engine import decide
+    import pytest
+    policy = Policy(version="1", action="test", schema=PolicySchema.V1_LEGACY, risk=RiskLevel.LOW, required_evidence=[])
+    with pytest.raises(TypeError):
+        decide("invalid_type", policy)
+
+def test_decide_type_error_situational():
+    from evidencetool.models.policy import Policy, PolicySchema, RiskLevel
+    from evidencetool.decision.engine import decide
+    import pytest
+    policy = Policy(version="1", action="test", schema=PolicySchema.V2_SITUATIONAL, risk=RiskLevel.LOW, required_evidence=[])
+    with pytest.raises(TypeError):
+        decide([], policy)
+
+def test_decide_unknown_schema():
+    from evidencetool.models.policy import Policy, PolicySchema, RiskLevel
+    from evidencetool.decision.engine import decide
+    import pytest
+    policy = Policy(version="1", action="test", schema="FAKE_SCHEMA", risk=RiskLevel.LOW, required_evidence=[])
+    with pytest.raises(ValueError):
+        decide([], policy)

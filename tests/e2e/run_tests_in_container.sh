@@ -14,16 +14,10 @@ setfacl -m g:evidencetool:r /etc/nginx/ssl/nginx.key
 setfacl -m g:evidencetool:r /etc/nginx/ssl/nginx.crt
 setfacl -m d:g:evidencetool:r /etc/nginx/ssl
 
-echo "=== Diagnostic Nginx Modules ==="
-nginx -V 2>&1 | tr ' ' '\n' | grep prefix || true
-ls -la /usr/share/nginx/modules || true
-ls -la /etc/nginx/modules || true
-nginx -t || true
-nginx -t -p /etc/nginx || true
-echo "================================="
+
 
 PYTHON="/opt/EvidenceTool/.venv/bin/python3"
-DIAGNOSE_CMD="sudo -u evidencetool /opt/EvidenceTool/.venv/bin/evidencetool diagnose nginx --policy /opt/EvidenceTool/policies/nginx-v2.yaml --catalog /opt/EvidenceTool/catalogs/nginx.yaml -a config_path=/etc/nginx/nginx.conf -a certificate_path=/etc/nginx/ssl/nginx.crt -a private_key_path=/etc/nginx/ssl/nginx.key -a service=nginx --output json"
+DIAGNOSE_CMD="sudo -u evidencetool /opt/EvidenceTool/.venv/bin/evidencetool diagnose nginx --catalog /opt/EvidenceTool/catalogs/nginx.yaml -a config_path=/etc/nginx/nginx.conf -a certificate_path=/etc/nginx/ssl/nginx.crt -a private_key_path=/etc/nginx/ssl/nginx.key -a service=nginx --output json"
 
 check_result() {
     local out="$1"

@@ -1,8 +1,19 @@
-version: "1"
+version: "1.0"
+action: "restart_nginx"
+risk: "LOW"
+schema: "v2"
 
-action: restart_nginx
+allow:
+  - "NGINX_SERVICE_DOWN"
 
-risk: LOW
+blocked_by:
+  - "TLS_CERTIFICATE_MISSING"
+  - "TLS_CERTIFICATE_EXPIRED"
+  - "TLS_KEY_MISSING"
+  - "TLS_KEY_MISMATCH"
+  - "NGINX_SERVICE_NOT_INSTALLED"
+  - "DISK_FULL"
+  - "NGINX_CONFIG_INVALID"
 
 required_evidence:
   - id: nginx.config_valid
@@ -21,5 +32,3 @@ required_evidence:
     on_unknown: IGNORE
   - id: filesystem.disk_space_available
     on_unknown: IGNORE
-
-human_approval: false

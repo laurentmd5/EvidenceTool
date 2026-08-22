@@ -55,7 +55,7 @@ class NginxProvider:
         )
 
     def _config_valid(self, config_path: str, host: str | None) -> Observation:
-        method = f"nginx -t -c {config_path}"
+        method = f"env LC_ALL=C LANG=C nginx -t -c {config_path}"
 
         if not file_exists(config_path, host=host):
             return Observation(
@@ -70,7 +70,7 @@ class NginxProvider:
                 host=host,
             )
 
-        args = ["nginx", "-t", "-c", config_path]
+        args = ["env", "LC_ALL=C", "LANG=C", "nginx", "-t", "-c", config_path]
         result = run_command(args, host=host)
 
         if not result.ran:

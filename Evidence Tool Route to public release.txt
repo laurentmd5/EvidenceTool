@@ -1,0 +1,90 @@
+EvidenceTool — Route vers la publication open source
+
+But de ce document : une seule checklist à suivre, dans l'ordre, jusqu'à ce que tu puisses publier EvidenceTool et le voir utilisé par des SRE/DevOps/Platform Engineers dans des environnements de production réels — y compris branché à un harnais d'agent.
+
+Ce document fusionne deux choses qui doivent avancer ensemble, pas l'une après l'autre : la stabilisation technique proposée (V0.3.1) et la mise en conformité légale/sécurité/gouvernance nécessaire avant toute publication publique. Les deux sont des prérequis à V0.4, pas des options.
+
+Coche chaque case au fur et à mesure. Ne passe pas à la phase suivante tant que la précédente n'est pas entièrement cochée — c'est exactement la discipline qui a permis d'arriver jusqu'ici sans dérive de portée.
+
+Phase 0 — Où on en est réellement (état vérifié, pas supposé)
+ V0.1 : contrat gelé, Evidence/Decision/Policy, vertical slice Nginx, 29 tests
+ V0.2 : moteur générique, registry de providers, SSH agentless durci (injection testée, StrictHostKeyChecking=yes)
+ V0.2.1 : hardening (routage explicite par schema, Decision Integrity avec invariants inversés testés)
+ V0.3 : moteur de corrélation situationnelle (Situation, OperationalState, catalogue), Scénarios A/B/C/D verts en E2E réel (Jenkins, systemd+nginx+TLS réels, Docker isolé)
+ CI complète : Ruff, Mypy, Bandit (SAST), pip-audit (SCA), pytest, E2E
+ Rien de tout ça n'est encore légalement publiable ni garanti sûr pour un usage mondial non supervisé — c'est l'objet de la Phase 1.
+Phase 1 — Stabilisation V0.3.1 (bloquant avant tout élargissement)
+
+Ne commence pas Docker (Phase 2) avant d'avoir coché l'intégralité de cette phase.
+
+1A — Verrouillage architecture & code (reprend la proposition initiale)
+ CI Jenkins rendue obligatoire sur main via une règle de protection de branche GitHub (Require status checks to pass before merging) — vérifier que c'est réellement activé, pas juste que Jenkins tourne
+ Les 4 scénarios E2E (A/B/C/D) inclus dans le check obligatoire, pas seulement exécutés en best-effort
+ Tests de non-régression Decision Integrity marqués comme intouchables (commentaire explicite dans le code : # DO NOT WEAKEN — see PRODUCT_CONTRACT.md Section X)
+ PRODUCT_CONTRACT.md mis à jour pour figer formellement le modèle Situation/OperationalState/catalogue comme un "V0.3 Situational Contract — frozen", au même niveau de rigueur que le contrat V0.1 original
+ Mesure de couverture spécifique sur decision/correlation.py et decision/engine.py (pas juste le pourcentage global du repo) — viser une vraie couverture de la table de vérité PASS/FAIL/UNKNOWN, pas un chiffre de façade
+ Un test structurel qui vérifie qu'aucun provider n'importe jamais directement policy, decision, ou correlation — les providers ne doivent connaître que Observation. (Un simple test qui inspecte les imports de chaque fichier dans providers/ suffit.)
+ Suppression du bloc de débogage "Diagnostic Nginx Modules" resté dans run.sh/run_tests_in_container.sh (pollue les logs, plus nécessaire depuis le correctif de filtrage de stderr)
+1B — Gouvernance & hygiène légale (bloquant, pas de publication sans ça)
+ LICENSE — ajouter (recommandation : Apache-2.0, pour la concession de brevet explicite, pertinente pour un outil pouvant être intégré en entreprise)
+ SECURITY.md — politique de signalement de vulnérabilité (canal privé, pas d'issue publique). Priorité la plus haute de cette sous-phase : cet outil lit des clés privées et fait du SSH vers de la prod.
+ CONTRIBUTING.md — formaliser par écrit les invariants non négociables du projet pour tout futur contributeur externe :
+jamais de commande shell construite comme une chaîne (shell=True interdit, toujours une liste)
+chaque Observation doit porter sa provenance (collector, method, host)
+Decision ne doit jamais être modifiable après coup, ni influencée par une Recommendation
+tout nouveau provider/situation doit venir avec ses tests avant merge
+ Version bump : pyproject.toml toujours à 0.1.0 malgré tout ce qui a été construit — passer à 0.3.0, tag Git, note de release
+ CHANGELOG.md — historique des versions, au minimum depuis V0.1
+1C — Robustesse multi-environnement (avant de dire "marche partout")
+ Bug de locale à corriger : _config_valid teste des chaînes anglaises en dur ("Permission denied", "syntax is ok"). Sur un système non-anglophone, nginx traduit ses messages et la classification PASS/FAIL casse silencieusement. Forcer LC_ALL=C (et LANG=C) dans l'environnement de tous les appels run_command du provider nginx.
+ Ajouter au moins un second environnement E2E dans la CI (Debian ou une base RHEL/Rocky) — actuellement testé uniquement sur Ubuntu 22.04 + nginx 1.18
+ Documenter explicitement dans le README la liste des plateformes réellement testées, pas laisser deviner
+1D — Contrat machine-vérifiable
+ Publier un vrai JSON Schema (schemas/diagnosis-result.schema.json) reflétant PRODUCT_CONTRACT.md Section 8
+ Un test CI qui valide chaque sortie JSON réelle (issue des scénarios E2E) contre ce schéma — pas seulement contre des assertions Python éparses
+ Figer les dépendances (pyyaml, click, cryptography) avec des versions exactes testées, pas des bornes ouvertes >=
+1E — Sécurité pour usage en harnais d'agent (si tu comptes le brancher à un agent autonome)
+ Section très visible en tête du README.md : "What EvidenceTool is NOT" — EvidenceTool decides, it never executes. A HUMAN_REVIEW silently treated as ALLOW by the calling system defeats the entire safety model.
+ docs/integrations/agent-harness.md — guide dédié qui recommande explicitement : le harnais doit revalider la cohérence decision.blocking_evidence / decision.status lui-même avant d'agir, jamais faire une confiance aveugle au seul champ status
+ Documenter explicitement la règle de fraîcheur : un ALLOW mis en cache par l'appelant et rejoué plus tard n'est plus valide — chaque action doit être précédée d'un diagnostic frais
+ Déjà acquis, vérifié : validate_decision_integrity est réellement appelé dans le flux runtime (diagnose.py), pas seulement testé en CI, avec un exit code dédié (3) — bon socle, à documenter comme garantie explicite dans le guide d'intégration
+Phase 2 — V0.4 : Multi-environnement (Docker)
+
+Ne commence qu'une fois la Phase 1 entièrement cochée.
+
+ Décision explicite et documentée sur le compromis de privilège avant d'écrire une seule ligne de provider Docker : l'accès au socket Docker équivaut en pratique à un accès root sur l'hôte. Ce n'est pas symétrique avec l'accès en lecture seule aux fichiers TLS. Documenter ce compromis aussi explicitement qu'on l'a fait pour le sudo VPS et les ACL SSH — dans PRODUCT_CONTRACT.md, pas seulement dans une discussion.
+ Providers Docker : container.exists, container.running, container.restarting, container.health, container.exit_code, container.logs
+ Situations : CONTAINER_CRASH_LOOP, CONTAINER_UNHEALTHY, CONTAINER_STOPPED, CONTAINER_HEALTHY
+ Mêmes exigences que Nginx : provenance complète, tests unitaires + E2E réel (conteneur Docker qui crashe pour de vrai, pas juste des objets Python construits à la main)
+ Un nouveau scénario E2E Docker dans Jenkins, avec le même niveau de rigueur que A/B/C/D
+Phase 3 — V0.5 : Élargissement de l'observabilité
+
+Seulement après une V0.4 stable et testée en conditions réelles.
+
+ Extension progressive : filesystem (pression disque), network (injoignabilité), process
+ Nouvelles situations : DISK_PRESSURE, NETWORK_UNREACHABLE, en plus de celles déjà existantes
+ Le State Correlation Engine doit rester le même moteur générique — pas de logique spécifique par environnement dans decision/
+Non-Goals explicites — à ne jamais réintroduire sans un débat dédié
+
+Ces exclusions ont déjà été discutées et tranchées. Ne pas les rouvrir sous la pression de la publication :
+
+❌ Web UI / dashboard
+❌ Modification du système diagnostiqué (le read-only reste absolu)
+❌ Remédiation automatique
+❌ Kill switch d'exécution (tant qu'aucune capacité d'exécution n'existe, un kill switch n'a pas d'objet — voir discussion V0.3 sur ce point précis)
+❌ Kubernetes (après Docker seulement, jamais avant)
+❌ LLM qui décide (l'IA peut recommander, jamais décider — principe fondateur du projet)
+❌ OpenTelemetry (tant qu'un seul process/machine est impliqué par diagnostic)
+❌ Policy editor web
+❌ Authentification complexe / workflow d'approbation qui mute une Decision
+❌ Intégrations en dur (PagerDuty/Jira/Slack) — le contrat JSON reste la seule surface d'intégration
+Checklist finale avant de "basculer l'interrupteur" public
+ Phase 1 entièrement cochée (1A à 1E)
+ Annonce publique rédigée avec une section "What this is NOT" aussi visible que "What this is"
+ Un v0.3.0 taggé, releasé, avec notes de version
+ Le lien GitHub, le README, et SECURITY.md relus par quelqu'un d'autre que toi (même un seul relecteur externe change beaucoup)
+Rappel — principes invariants du projet
+
+À citer à tout futur contributeur, agent IA, ou toi-même dans six mois si une session reprend ce projet sans ce contexte :
+
+EvidenceTool does not automate actions first. It makes operational decisions explainable first. The AI may recommend. The policy engine decides. Recommendation never modifies Decision. Decision precedence: BLOCK > HUMAN_REVIEW > ALLOW, toujours, sans exception. Un provider ne construit jamais une commande comme une chaîne shell. Toute Observation porte sa provenance : qui l'a collectée, comment, depuis où.

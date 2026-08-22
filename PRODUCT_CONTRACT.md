@@ -471,3 +471,7 @@ A run that correctly diagnoses a broken system and returns `BLOCK` is a **succes
 
 **SLO — Diagnostic execution reliability**
 > ≥ 99.5% of scheduled EvidenceTool runs complete successfully over a rolling 30-day window.
+ 
+ # #   1 3 .   V 0 . 3   S i t u a t i o n a l   C o n t r a c t      f r o z e n  
+ T h e   S i t u a t i o n ,   O p e r a t i o n a l S t a t e ,   a n d   C a t a l o g   m o d e l s   i n t r o d u c e d   i n   V 0 . 3   a r e   f o r m a l l y   f r o z e n .   T h e   D e c i s i o n   E n g i n e   V 2 _ S I T U A T I O N A L   l o g i c a l l y   e v a l u a t e s   s t a t e   b a s e d   o n   d e f i n i t i v e l y   m a p p e d   S i t u a t i o n s ,   s t r i c t l y   e v a l u a t i n g   b l o c k e d _ b y   s i t u a t i o n s   p r i o r   t o   c o n c l u d i n g   a n   a m b i g u o u s   o p e r a t i o n a l   s t a t e .   T h i s   i s   p a r t   o f   t h e   n o n - n e g o t i a b l e   c o n t r a c t .  
+ 
