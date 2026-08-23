@@ -11,25 +11,28 @@ trap cleanup EXIT
 
 cleanup
 
-# Determine python / evidencetool command
-if [ -f "/opt/EvidenceTool/.venv/bin/evidencetool" ]; then
-    DIAGNOSE_BIN="/opt/EvidenceTool/.venv/bin/evidencetool"
-    CATALOG_PATH="/opt/EvidenceTool/catalogs/docker.yaml"
-    POLICY_PATH="/opt/EvidenceTool/policies/docker.yaml"
-elif [ -f ".venv/bin/evidencetool" ]; then
-    DIAGNOSE_BIN=".venv/bin/evidencetool"
-    CATALOG_PATH="catalogs/docker.yaml"
-    POLICY_PATH="policies/docker.yaml"
-else
-    DIAGNOSE_BIN="evidencetool"
-    CATALOG_PATH="catalogs/docker.yaml"
-    POLICY_PATH="policies/docker.yaml"
-fi
+# Locate script and workspace directories
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+CATALOG_PATH="$ROOT_DIR/catalogs/docker.yaml"
+POLICY_PATH="$ROOT_DIR/policies/docker.yaml"
 
 PYTHON_CMD="python3"
-if ! command -v python3 >/dev/null 2>&1; then
+if [ -f "/tmp/venv/bin/python" ]; then
+    PYTHON_CMD="/tmp/venv/bin/python"
+elif [ -f "$ROOT_DIR/.venv/bin/python" ]; then
+    PYTHON_CMD="$ROOT_DIR/.venv/bin/python"
+elif ! command -v python3 >/dev/null 2>&1; then
     PYTHON_CMD="python"
 fi
+
+echo "Using Python binary: $PYTHON_CMD"
+echo "Root directory: $ROOT_DIR"
+
+run_diagnose() {
+    PYTHONPATH="$ROOT_DIR/src" "$PYTHON_CMD" -m evidencetool.cli.main diagnose "$@"
+}
 
 check_result() {
     local out="$1"
@@ -39,9 +42,9 @@ check_result() {
     local status
     local reason
 
-    if command -v $PYTHON_CMD >/dev/null 2>&1; then
-        status=$($PYTHON_CMD -c "import sys, json; d=json.loads(sys.argv[1]); print(d.get('decision',{}).get('status',''))" "$out" 2>/dev/null || true)
-        reason=$($PYTHON_CMD -c "import sys, json; d=json.loads(sys.argv[1]); print(d.get('decision',{}).get('reason',''))" "$out" 2>/dev/null || true)
+    if command -v "$PYTHON_CMD" >/dev/null 2>&1; then
+        status=$("$PYTHON_CMD" -c "import sys, json; d=json.loads(sys.argv[1]); print(d.get('decision',{}).get('status',''))" "$out" 2>/dev/null || true)
+        reason=$("$PYTHON_CMD" -c "import sys, json; d=json.loads(sys.argv[1]); print(d.get('decision',{}).get('reason',''))" "$out" 2>/dev/null || true)
     elif command -v jq >/dev/null 2>&1; then
         status=$(echo "$out" | jq -r '.decision.status // empty')
         reason=$(echo "$out" | jq -r '.decision.reason // empty')
@@ -65,32 +68,32 @@ check_result() {
 echo "--- Scenario 1: Stopped Container (CONTAINER_STOPPED) ---"
 docker run -d --name test-stopped-e2e alpine sleep 0.1 >/dev/null
 sleep 1
-OUT=$($DIAGNOSE_BIN diagnose docker --catalog "$CATALOG_PATH" --policy "$POLICY_PATH" -a container=test-stopped-e2e --output json) || true
+OUT=$(run_diagnose docker --catalog "$CATALOG_PATH" --policy "$POLICY_PATH" -a container=test-stopped-e2e --output json) || true
 check_result "$OUT" "ALLOW" "CONTAINER_STOPPED"
 
 # --- Scenario 2: Crash Loop Container ---
 echo "--- Scenario 2: Crash Loop Container (CONTAINER_CRASH_LOOP) ---"
 docker run -d --restart=always --name test-crash-e2e alpine sh -c "exit 1" >/dev/null
 sleep 2
-OUT=$($DIAGNOSE_BIN diagnose docker --catalog "$CATALOG_PATH" --policy "$POLICY_PATH" -a container=test-crash-e2e --output json) || true
+OUT=$(run_diagnose docker --catalog "$CATALOG_PATH" --policy "$POLICY_PATH" -a container=test-crash-e2e --output json) || true
 check_result "$OUT" "ALLOW" "CONTAINER_CRASH_LOOP"
 
 # --- Scenario 3: Unhealthy Container ---
 echo "--- Scenario 3: Unhealthy Container (CONTAINER_UNHEALTHY) ---"
 docker run -d --name test-unhealthy-e2e --health-cmd="exit 1" --health-interval=1s --health-retries=1 --health-timeout=1s alpine sleep 30 >/dev/null
 sleep 3
-OUT=$($DIAGNOSE_BIN diagnose docker --catalog "$CATALOG_PATH" --policy "$POLICY_PATH" -a container=test-unhealthy-e2e --output json) || true
+OUT=$(run_diagnose docker --catalog "$CATALOG_PATH" --policy "$POLICY_PATH" -a container=test-unhealthy-e2e --output json) || true
 check_result "$OUT" "ALLOW" "CONTAINER_UNHEALTHY"
 
 # --- Scenario 4: Non-Existent Container ---
 echo "--- Scenario 4: Non-Existent Container (CONTAINER_NOT_FOUND) ---"
-OUT=$($DIAGNOSE_BIN diagnose docker --catalog "$CATALOG_PATH" --policy "$POLICY_PATH" -a container=nonexistent_container_xyz --output json) || true
+OUT=$(run_diagnose docker --catalog "$CATALOG_PATH" --policy "$POLICY_PATH" -a container=nonexistent_container_xyz --output json) || true
 check_result "$OUT" "BLOCK" "CONTAINER_NOT_FOUND"
 
 # --- Scenario 5: Running Healthy Container (Action Blocked Because Already Healthy) ---
 echo "--- Scenario 5: Running Healthy Container ---"
 docker run -d --name test-healthy-e2e alpine sleep 30 >/dev/null
-OUT=$($DIAGNOSE_BIN diagnose docker --catalog "$CATALOG_PATH" --policy "$POLICY_PATH" -a container=test-healthy-e2e --output json) || true
+OUT=$(run_diagnose docker --catalog "$CATALOG_PATH" --policy "$POLICY_PATH" -a container=test-healthy-e2e --output json) || true
 check_result "$OUT" "BLOCK" ""
 
 echo "=== All Docker E2E Scenarios Passed Successfully ==="
