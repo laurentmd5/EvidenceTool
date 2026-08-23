@@ -11,7 +11,7 @@ trap cleanup EXIT
 
 cleanup
 
-# Determine python command
+# Determine python / evidencetool command
 if [ -f "/opt/EvidenceTool/.venv/bin/evidencetool" ]; then
     DIAGNOSE_BIN="/opt/EvidenceTool/.venv/bin/evidencetool"
     CATALOG_PATH="/opt/EvidenceTool/catalogs/docker.yaml"
@@ -26,13 +26,26 @@ else
     POLICY_PATH="policies/docker.yaml"
 fi
 
+PYTHON_CMD="python3"
+if ! command -v python3 >/dev/null 2>&1; then
+    PYTHON_CMD="python"
+fi
+
 check_result() {
     local out="$1"
     local expected_status="$2"
     local expected_situation="$3"
     
-    local status=$(echo "$out" | jq -r '.decision.status')
-    local reason=$(echo "$out" | jq -r '.decision.reason')
+    local status
+    local reason
+
+    if command -v $PYTHON_CMD >/dev/null 2>&1; then
+        status=$($PYTHON_CMD -c "import sys, json; d=json.loads(sys.argv[1]); print(d.get('decision',{}).get('status',''))" "$out" 2>/dev/null || true)
+        reason=$($PYTHON_CMD -c "import sys, json; d=json.loads(sys.argv[1]); print(d.get('decision',{}).get('reason',''))" "$out" 2>/dev/null || true)
+    elif command -v jq >/dev/null 2>&1; then
+        status=$(echo "$out" | jq -r '.decision.status // empty')
+        reason=$(echo "$out" | jq -r '.decision.reason // empty')
+    fi
     
     if [ "$status" != "$expected_status" ]; then
         echo "FAIL: Expected status $expected_status, got $status"

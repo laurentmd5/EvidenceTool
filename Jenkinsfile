@@ -105,11 +105,17 @@ pipeline {
             }
         }
 
-        stage('E2E Operational Tests') {
-            // No docker agent here; runs directly on the Jenkins host machine
-            // to execute Docker commands and spin up the systemd container.
+        stage('E2E Operational Tests (Nginx Systemd)') {
+            // Runs on the host Docker daemon to test real Nginx systemd behavior across Ubuntu & Debian
             steps {
                 sh 'bash tests/e2e/run.sh'
+            }
+        }
+
+        stage('E2E Docker Operational Tests') {
+            // Runs on the host Docker daemon to test real Docker container lifecycle & diagnostics
+            steps {
+                sh 'bash tests/e2e/run_docker_e2e.sh'
             }
         }
     }

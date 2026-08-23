@@ -39,8 +39,5 @@ for DOCKERFILE in Dockerfile.systemd Dockerfile.debian; do
   echo "SUCCESS on $DOCKERFILE"
 done
 
-echo ">>> Running Docker E2E Scenarios <<<"
-chmod +x tests/e2e/run_docker_e2e.sh
-bash tests/e2e/run_docker_e2e.sh
+echo "ALL SYSTEMD E2E SUCCESS"
 
-echo "ALL E2E SUCCESS"
