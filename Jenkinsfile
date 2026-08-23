@@ -76,7 +76,25 @@ pipeline {
                     }
                 }
          
-                stage('Test & Coverage (Pytest)') {
+                stage('Provider Tests (Case-by-Case)') {
+                    steps {
+                        sh '''
+                            . /tmp/venv/bin/activate
+                            pytest tests/test_docker_provider.py tests/test_filesystem_provider.py tests/test_network_provider.py tests/test_nginx_provider.py tests/test_process_provider.py tests/test_systemd_provider.py tests/test_tls_provider.py -v --junitxml=provider-test-results.xml
+                        '''
+                    }
+                }
+
+                stage('Decision Engine & Domain Tests') {
+                    steps {
+                        sh '''
+                            . /tmp/venv/bin/activate
+                            pytest tests/test_decision.py tests/test_v03_semantics.py tests/test_architecture.py tests/test_policy.py tests/test_evidence.py tests/test_ssh_transport.py tests/test_observability_v05.py -v
+                        '''
+                    }
+                }
+
+                stage('Full Suite & Coverage (Pytest)') {
                     steps {
                         sh '''
                             . /tmp/venv/bin/activate
