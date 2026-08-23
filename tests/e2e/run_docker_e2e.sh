@@ -27,6 +27,18 @@ elif ! command -v python3 >/dev/null 2>&1; then
     PYTHON_CMD="python"
 fi
 
+# Ensure Python has required runtime dependencies (click, yaml)
+if ! PYTHONPATH="$ROOT_DIR/src" "$PYTHON_CMD" -c "import click, yaml" >/dev/null 2>&1; then
+    echo "Preparing dedicated host virtualenv for E2E..."
+    VENV_DIR="/tmp/evidencetool_e2e_host_venv"
+    if [ ! -f "$VENV_DIR/bin/python" ]; then
+        python3 -m venv "$VENV_DIR" || python -m venv "$VENV_DIR"
+        "$VENV_DIR/bin/pip" install --quiet --upgrade pip setuptools wheel
+        "$VENV_DIR/bin/pip" install --quiet -e "$ROOT_DIR"
+    fi
+    PYTHON_CMD="$VENV_DIR/bin/python"
+fi
+
 echo "Using Python binary: $PYTHON_CMD"
 echo "Root directory: $ROOT_DIR"
 

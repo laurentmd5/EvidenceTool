@@ -26,7 +26,7 @@ def cli() -> None:
     """EvidenceTool — evidence before action."""
 
 
-@cli.command()
+@cli.command(name="diagnose")
 @click.argument("target", type=str)
 @click.option(
     "--output",
