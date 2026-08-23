@@ -2,10 +2,12 @@
 
 ## Supported Versions
 
-Currently, EvidenceTool is in pre-release (`0.3.0`). Security updates will be applied to the main branch. Once a stable release is cut (e.g. `1.0`), this table will reflect supported maintenance branches.
+Currently, EvidenceTool is in release (`0.5.0`). Security updates will be applied to the main branch.
 
 | Version | Supported          |
 | ------- | ------------------ |
+| 0.5.x   | :white_check_mark: |
+| 0.4.x   | :white_check_mark: |
 | 0.3.x   | :white_check_mark: |
 | < 0.3   | :x:                |
 

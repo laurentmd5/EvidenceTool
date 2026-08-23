@@ -417,3 +417,23 @@ To preserve the founding principle (*read-only observer, never an executor*):
 3. **Recommended Host Isolation**:
    - In standard environments: Assign `evidencetool` to the `docker` group or configure socket ACLs with explicit documentation of the host trust boundary.
    - In hardened multi-tenant environments: Use a read-only Docker socket proxy (filtering to allow only `GET /containers/json`, `GET /containers/{id}/json`, `GET /containers/{id}/logs`, while rejecting all `POST`/`DELETE`/`PUT` requests).
+
+---
+
+## 16. Observability Expansion (V0.5 Contract)
+
+### 16.1 Expanded Diagnostic Providers
+EvidenceTool V0.5 introduces standard operational providers for infrastructure monitoring:
+1. **Network Provider (`network`)**:
+   - `network.port_reachable`: Non-destructive TCP port connectivity verification.
+   - `network.host_reachable`: Gateway / upstream ICMP ping or address reachability.
+   - `network.dns_resolvable`: DNS name resolution verification.
+2. **Process Provider (`process`)**:
+   - `process.running`: Process existence and PID verification via `pgrep` or `/proc`.
+   - `process.zombie`: Zombie process state (`Z`) detection.
+3. **Filesystem Provider (`filesystem`)**:
+   - `filesystem.disk_space_available`: Threshold check on free disk space.
+   - `filesystem.disk_pressure`: Disk saturation and pressure warning.
+
+### 16.2 Generic State Correlation Invariant
+The Decision Engine and State Correlation Engine remain **strictly generic and environment-agnostic**. All provider-specific knowledge lives inside discrete providers (`src/evidencetool/providers/`) and situation signature catalogs (`catalogs/*.yaml`), ensuring zero coupling between domain decision logic and OS-level collection mechanics.

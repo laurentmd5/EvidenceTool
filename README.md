@@ -1,4 +1,4 @@
-# EvidenceTool (V0.3 + Situational Decision Engine)
+# EvidenceTool (V0.5 — Observability & Multi-Environment Decision Layer)
 
 > EvidenceTool does not automate actions first. It makes operational decisions explainable first.
 
@@ -18,12 +18,27 @@ sufficiently justified by available evidence.
 
 ---
 
-## Supported Platforms
+## Supported Platforms & Environments
 
 EvidenceTool is tested and verified on the following environments:
 - **Ubuntu 22.04 LTS** (systemd + Nginx)
 - **Debian 12** (systemd + Nginx)
+- **Docker Environments** (container inspection, crash loops, health status)
 - Any POSIX systemd-based Linux distribution with standard coreutils
+
+---
+
+## Built-in Diagnostic Providers
+
+| Provider | Namespace | Checks / Observations | Scope |
+| :--- | :--- | :--- | :--- |
+| **Nginx** | `nginx` | `nginx.config_valid` | Configuration syntax, module resolution, read-only log error filtering |
+| **TLS** | `tls` | `tls.certificate_exists`, `tls.certificate_valid`, `tls.private_key_exists`, `tls.key_matches_certificate` | Certificate expiration, existence, RSA/EC key modulus match |
+| **Systemd** | `systemd` | `systemd.service_exists`, `systemd.service_active` | Service unit load state, daemon status |
+| **Docker** | `docker` / `container` | `container.exists`, `container.running`, `container.restarting`, `container.health`, `container.exit_code`, `container.logs` | Strict read-only container inspection, health checks, OOM / crash loops |
+| **Filesystem** | `filesystem` | `filesystem.disk_space_available`, `filesystem.disk_pressure` | Free disk space thresholds, storage saturation warnings |
+| **Network** | `network` | `network.port_reachable`, `network.host_reachable`, `network.dns_resolvable` | TCP port connectivity, ICMP ping, DNS resolution |
+| **Process** | `process` | `process.running`, `process.zombie` | Process existence, PID tracking, zombie state detection |
 
 ---
 
@@ -65,24 +80,28 @@ Nothing in this codebase modifies the system it inspects.
 pip install -e ".[dev,test]"   # or use a virtualenv
 ```
 
-## Usage
+## Usage Examples
 
 ```bash
-# Human-readable diagnosis, local execution
+# 1. Nginx Diagnosis (Human-readable output)
 evidencetool diagnose nginx
 
-# Machine-readable JSON output (the real contract — see PRODUCT_CONTRACT.md Section 8)
+# 2. Machine-readable JSON output (the real contract — see PRODUCT_CONTRACT.md Section 8)
 evidencetool diagnose nginx --output json
 
-# Agentless SSH: Diagnose a remote server (e.g. from your bastion)
+# 3. Docker Container Diagnosis
+evidencetool diagnose docker \
+  --policy policies/docker.yaml \
+  --catalog catalogs/docker.yaml \
+  -a container=production_web_app
+
+# 4. Agentless Remote SSH Diagnosis
 evidencetool diagnose nginx --host prod-web-01
 
-# Explicit policy & situation catalog
-evidencetool diagnose nginx --policy policies/nginx.yaml --catalog catalogs/nginx.yaml
-
-# Point at specific paths and output metrics
+# 5. Explicit policy & situation catalog with Prometheus metrics
 evidencetool diagnose nginx \
-  --host prod-web-01 \
+  --policy policies/nginx.yaml \
+  --catalog catalogs/nginx.yaml \
   -a service=nginx \
   -a config_path=/etc/nginx/nginx.conf \
   -a certificate_path=/etc/letsencrypt/live/example.com/fullchain.pem \
@@ -140,34 +159,27 @@ sudo apt install -y acl
 sudo setfacl -m g:evidencetool:r /etc/nginx/ssl/nginx.key
 sudo setfacl -m g:evidencetool:r /etc/nginx/ssl/nginx.crt
 
-# If using Let's Encrypt (Certbot), ensure ACLs survive renewals:
-# sudo mkdir -p /etc/letsencrypt/renewal-hooks/deploy
-# sudo tee /etc/letsencrypt/renewal-hooks/deploy/evidencetool-acl.sh > /dev/null << 'EOF'
-# #!/bin/bash
-# setfacl -m g:evidencetool:r "$RENEWED_LINEAGE/privkey.pem"
-# EOF
-# sudo chmod +x /etc/letsencrypt/renewal-hooks/deploy/evidencetool-acl.sh
+# 3. For Docker inspection, add evidencetool to docker group (see PRODUCT_CONTRACT.md Section 15 for trade-offs):
+sudo usermod -aG docker evidencetool
 ```
 
-## Tests
+## Tests & CI Verification
 
 ```bash
-# Run tests with coverage
+# Run unit tests with full coverage
 pytest tests/ -v --cov=evidencetool --cov-report=term
 
-# E2E Operational Tests (Requires Docker)
-# Spins up ephemeral containers (Ubuntu + Debian) with systemd, configures the least privilege
-# user, and verifies real diagnostic logic against Nginx.
+# E2E Operational Tests (Nginx Systemd on Ubuntu + Debian, and Docker scenarios)
 ./tests/e2e/run.sh
 
-# Code Quality & Security (DevSecOps)
+# Code Quality & DevSecOps Suite
 ruff check src/ tests/
 mypy src/
 bandit -r src/ -c pyproject.toml
 pip-audit
 ```
 
-## Writing a policy
+## Writing a Policy
 
 ```yaml
 version: "1.0"
@@ -204,14 +216,14 @@ required_evidence:
     on_unknown: IGNORE
   - id: filesystem.disk_space_available
     on_unknown: IGNORE
+
+human_approval: false
 ```
 
 Decision precedence is fixed and non-configurable:
 `BLOCK > HUMAN_REVIEW > ALLOW`. A blocking evidence item or blocked situation always wins,
 regardless of risk level or `human_approval`.
 
-## Known limitations
+## Known Limitations
 
-No execution, no Docker/Kubernetes yet (planned for V0.4/V0.5), no LLM, no dashboard, no
-aggregate scoring, no autonomous root-cause analysis. See
-`PRODUCT_CONTRACT.md` Section 10 for the full list and rationale.
+No execution / auto-remediation (by design), no Kubernetes yet, no LLM in the decision path, no web dashboard, no aggregate 0-100 scoring. See `PRODUCT_CONTRACT.md` Section 10 for the full list and rationale.
