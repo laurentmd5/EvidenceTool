@@ -1,10 +1,8 @@
-# EvidenceTool (V0.5 — Observability & Multi-Environment Decision Layer)
+# EvidenceTool (V0.6 — Dependency-Aware Operational Evidence Engine)
 
 > EvidenceTool does not automate actions first. It makes operational decisions explainable first.
 
-A read-only operational evidence and decision tool for diagnosing production
-incidents and determining whether a proposed remediation action is
-sufficiently justified by available evidence.
+**EvidenceTool** is a read-only, policy-aware operational evidence engine that correlates infrastructure, application, data, and dependency signals to identify probable root causes before allowing remediation.
 
 ---
 
@@ -24,6 +22,7 @@ EvidenceTool is tested and verified on the following environments:
 - **Ubuntu 22.04 LTS** (systemd + Nginx)
 - **Debian 12** (systemd + Nginx)
 - **Docker Environments** (container inspection, crash loops, health status)
+- **Database & Middleware** (PostgreSQL 14-17, MySQL 8 / MariaDB, Redis 6-7 RESP)
 - Any POSIX systemd-based Linux distribution with standard coreutils
 
 ---
@@ -37,8 +36,12 @@ EvidenceTool is tested and verified on the following environments:
 | **Systemd** | `systemd` | `systemd.service_exists`, `systemd.service_active` | Service unit load state, daemon status |
 | **Docker** | `docker` / `container` | `container.exists`, `container.running`, `container.restarting`, `container.health`, `container.exit_code`, `container.logs` | Strict read-only container inspection, health checks, OOM / crash loops |
 | **Filesystem** | `filesystem` | `filesystem.disk_space_available`, `filesystem.disk_pressure` | Free disk space thresholds, storage saturation warnings |
-| **Network** | `network` | `network.port_reachable`, `network.host_reachable`, `network.dns_resolvable` | TCP port connectivity, ICMP ping, DNS resolution |
-| **Process** | `process` | `process.running`, `process.zombie` | Process existence, PID tracking, zombie state detection |
+| **Network** | `network` | `network.dns_resolvable`, `network.route_exists`, `network.host_reachable`, `network.port_reachable`, `network.tls_handshake`, `network.http_reachable` | Deterministic network evidence chain, TCP refused vs timeout |
+| **Process** | `process` | `process.exists`, `process.running`, `process.state`, `process.zombie`, `process.cpu_usage`, `process.memory_usage`, `process.open_files`, `process.thread_count` | Deep Linux kernel state inspection (R/S/D/Z states, CPU, RAM, FD limits) |
+| **PostgreSQL** | `postgres` | `postgres.reachable`, `postgres.accepting_connections`, `postgres.pool_exhaustion`, `postgres.is_in_recovery`, `postgres.latency_ms` | Availability, connection pool saturation, replica / read-only detection |
+| **MySQL** | `mysql` | `mysql.reachable`, `mysql.ping`, `mysql.max_connections`, `mysql.read_only`, `mysql.latency_ms` | Initial handshake packet parsing, Error 1040 max connections, read-only status |
+| **Redis** | `redis` | `redis.reachable`, `redis.ping`, `redis.auth`, `redis.memory_pressure`, `redis.role`, `redis.latency_ms` | Native RESP wire protocol, PING/PONG, memory saturation (OOM), replication link |
+| **Dependency** | `dependency` | `dependency.http_status`, `dependency.latency_ms`, `dependency.sla_budget`, `dependency.circuit_breaker` | Upstream API SLA latency budget, HTTP 503/429/504 circuit breaking |
 
 ---
 

@@ -457,3 +457,74 @@ EvidenceTool V0.5 introduces standard operational providers for infrastructure m
 
 ### 16.2 Generic State Correlation Invariant
 The Decision Engine and State Correlation Engine remain **strictly generic and environment-agnostic**. All provider-specific knowledge lives inside discrete providers (`src/evidencetool/providers/`) and situation signature catalogs (`catalogs/*.yaml`), ensuring zero coupling between domain decision logic and OS-level collection mechanics.
+
+---
+
+## 17. Application & Data Dependencies (V0.6 Contract)
+
+### 17.1 Stateful Middleware & Upstream Dependency Providers
+EvidenceTool V0.6 extends observational boundaries to middleware and distributed dependency tiers:
+1. **PostgreSQL Provider (`postgres`)**:
+   - `postgres.reachable`: TCP socket connectivity on port 5432.
+   - `postgres.accepting_connections`: Availability probe via `pg_isready` / wire SSLRequest handshake.
+   - `postgres.pool_exhaustion`: Connection slot saturation detection (`FATAL: remaining connection slots are reserved` / `too many clients already`).
+   - `postgres.is_in_recovery`: Fact observation on standby / read-only replica status.
+   - `postgres.latency_ms`: Handshake latency measurement.
+2. **MySQL Provider (`mysql`)**:
+   - `mysql.reachable`: TCP socket connectivity on port 3306.
+   - `mysql.ping`: Initial handshake packet decoding and protocol validation.
+   - `mysql.max_connections`: Max connection limit detection (`Error 1040 (HY000): Too many connections`).
+   - `mysql.read_only`: Server `read_only` / `super_read_only` flag observation.
+   - `mysql.latency_ms`: Connect round-trip latency.
+3. **Redis Provider (`redis`)**:
+   - Native RESP wire client (zero external client dependencies).
+   - `redis.reachable`: TCP port 6379 connectivity.
+   - `redis.ping`: RESP `PING` command validation (`+PONG`).
+   - `redis.auth`: Credential validation (`NOAUTH` vs `WRONGPASS`).
+   - `redis.memory_pressure`: `INFO memory` ratio analysis (`used_memory / maxmemory`) and `OOM_MAXMEMORY` detection.
+   - `redis.role`: Node role and replication link health (`master_link_status: down`).
+   - `redis.latency_ms`: Round-trip command latency.
+4. **Dependency Provider (`dependency`)**:
+   - `dependency.http_status`: HTTP health check endpoint status (`/health`, `/healthz`).
+   - `dependency.latency_ms`: Exact round-trip response time.
+   - `dependency.sla_budget`: SLA budget validation against context expectations (`latency_ms <= sla_budget_ms`).
+   - `dependency.circuit_breaker`: Upstream throttling and circuit breaking detection (HTTP 503, 429, 504).
+
+---
+
+## 18. First-Class Causality, Provenance & Strategic Roadmap
+
+### 18.1 Definitive Product Definition
+> **EvidenceTool** is a read-only, policy-aware operational evidence engine that correlates infrastructure, application, data, and dependency signals to identify probable root causes before allowing remediation.
+
+### 18.2 First-Class Causality Model
+Every diagnosis result must expose causality and provenance as first-class citizens, distinguishing:
+1. **Root Cause Evidence (`root_cause`)**: The specific triggering evidence whose failure explains the failure signature (e.g. `postgres.pool_exhaustion`).
+2. **Supporting Evidence (`supporting_evidence`)**: Nominal underlying evidence proving that lower layers (network, processes, containers, OS) are healthy (e.g. `network.port_reachable: PASS`, `process.running: PASS`).
+3. **Decision Confidence (`confidence`)**: Formal confidence level derived from evidence coverage (`HIGH`, `MEDIUM`, `LOW`).
+
+```json
+{
+  "situation": "POSTGRES_POOL_EXHAUSTED",
+  "status": "BLOCK",
+  "confidence": "HIGH",
+  "root_cause": {
+    "evidence": ["postgres.pool_exhaustion"]
+  },
+  "supporting_evidence": [
+    "postgres.reachable",
+    "postgres.accepting_connections",
+    "postgres.latency_ms",
+    "network.port_reachable",
+    "process.running"
+  ]
+}
+```
+
+### 18.3 Strategic Evolution Trajectory
+- **V0.3**: Single-domain infrastructure diagnosis (Nginx / TLS / Systemd).
+- **V0.5**: Multi-domain infrastructure evidence (OS, Process, Filesystem, Network, Docker).
+- **V0.6**: Dependency-aware diagnosis (PostgreSQL, MySQL, Redis, Upstream APIs, SLA budgets).
+- **V0.7**: Cross-provider root-cause analysis (Distinguishing Symptoms vs Contributing Factors vs Root Cause in DAG graphs).
+- **V0.8+**: Distributed, Kubernetes, and Cloud operational environments.
+- **Future**: Autonomous AI-agent operational diagnosis and safety governance boundary.
