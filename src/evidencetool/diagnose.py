@@ -31,7 +31,7 @@ import time
 import uuid
 from dataclasses import dataclass
 
-from evidencetool.capability.models import CapabilityDenied, ExecutionContext
+from evidencetool.capability.models import AuthorityMetadata, CapabilityDenied, ExecutionContext
 from evidencetool.decision.engine import decide
 from evidencetool.decision.integrity import validate_decision_integrity
 from evidencetool.evidence.evaluator import evaluate_observation
@@ -54,6 +54,7 @@ class DiagnosisResult:
     decision: Decision
     recommendation: str
     metrics: MetricsData
+    authority: AuthorityMetadata | None = None
 
 
 def diagnose(  # noqa: C901
@@ -207,6 +208,19 @@ def diagnose(  # noqa: C901
 
     recommendation_text = recommend(decision)
 
+    authority_meta = None
+    if execution is not None:
+        tracker = execution.capabilities.probe_tracker
+        authority_meta = AuthorityMetadata(
+            caller_id=execution.identity.caller_id,
+            caller_type=execution.identity.caller_type.value,
+            session_id=execution.identity.session_id,
+            policy_fingerprint=execution.capabilities.policy_fingerprint,
+            probes_budget=tracker.max_probes,
+            probes_consumed=tracker.consumed,
+            probes_remaining=tracker.remaining,
+        )
+
     m.total_duration = time.time() - start_total
 
     return DiagnosisResult(
@@ -216,5 +230,6 @@ def diagnose(  # noqa: C901
         decision=decision,
         recommendation=recommendation_text,
         metrics=m,
+        authority=authority_meta,
     )
 

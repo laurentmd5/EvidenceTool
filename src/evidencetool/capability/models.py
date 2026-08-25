@@ -3,11 +3,58 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
 from ipaddress import ip_address, ip_network
 
 
 class CapabilityDenied(PermissionError):
     """Raised when a caller attempts a probe outside its granted capabilities."""
+
+
+class CallerType(str, Enum):
+    AI_AGENT = "AI_AGENT"
+    HUMAN = "HUMAN"
+    AUTOMATED_PIPELINE = "AUTOMATED_PIPELINE"
+    UNKNOWN = "UNKNOWN"
+
+
+@dataclass(frozen=True)
+class CallerIdentity:
+    caller_id: str = "local-cli"
+    caller_type: CallerType = CallerType.HUMAN
+    session_id: str | None = None
+
+
+class ProbeTracker:
+    """Tracks dynamic probe execution count against budget limits."""
+
+    def __init__(self, max_probes: int | None = None) -> None:
+        self.max_probes = max_probes
+        self.consumed = 0
+
+    def record_probe(self) -> None:
+        self.consumed += 1
+        if self.max_probes is not None and self.consumed > self.max_probes:
+            raise CapabilityDenied(
+                f"Probe budget exceeded: limit of {self.max_probes} probes reached."
+            )
+
+    @property
+    def remaining(self) -> int | None:
+        if self.max_probes is None:
+            return None
+        return max(0, self.max_probes - self.consumed)
+
+
+@dataclass(frozen=True)
+class AuthorityMetadata:
+    caller_id: str
+    caller_type: str
+    session_id: str | None = None
+    policy_fingerprint: str | None = None
+    probes_budget: int | None = None
+    probes_consumed: int = 0
+    probes_remaining: int | None = None
 
 
 @dataclass(frozen=True)
@@ -77,10 +124,17 @@ class CapabilitySet:
     kubernetes: KubernetesCapability = field(default_factory=KubernetesCapability)
     allowed_providers: frozenset[str] | None = None
     require_trusted_providers: bool = False
+    policy_fingerprint: str | None = None
+    probe_tracker: ProbeTracker = field(default_factory=ProbeTracker)
+
+    def __post_init__(self) -> None:
+        if self.network.max_probes is not None and self.probe_tracker.max_probes is None:
+            self.probe_tracker.max_probes = self.network.max_probes
 
     def require_network(
         self, operation: str, target: str, port: int | None = None
     ) -> None:
+        self.probe_tracker.record_probe()
         if not self.network.allows_operation(operation):
             raise CapabilityDenied(f"Network capability '{operation}' is not enabled.")
         if not self.network.allows_target(target):
@@ -89,6 +143,7 @@ class CapabilitySet:
             raise CapabilityDenied(f"Network port '{port}' is not authorized.")
 
     def require_kubernetes(self, operation: str, namespace: str) -> None:
+        self.probe_tracker.record_probe()
         if not self.kubernetes.allows_operation(operation):
             raise CapabilityDenied(f"Kubernetes operation '{operation}' is not enabled.")
         if not self.kubernetes.allows_namespace(namespace):
@@ -101,5 +156,6 @@ class CapabilitySet:
 @dataclass(frozen=True)
 class ExecutionContext:
     caller: str = "local-cli"
+    identity: CallerIdentity = field(default_factory=CallerIdentity)
     transport_host: str | None = None
     capabilities: CapabilitySet = field(default_factory=CapabilitySet)

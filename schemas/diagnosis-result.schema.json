@@ -71,6 +71,19 @@
       "properties": {
         "action": { "type": "string" }
       }
+    },
+    "authority": {
+      "type": "object",
+      "required": ["caller_id", "caller_type"],
+      "properties": {
+        "caller_id": { "type": "string" },
+        "caller_type": { "type": "string" },
+        "session_id": { "type": ["string", "null"] },
+        "policy_fingerprint": { "type": ["string", "null"] },
+        "probes_budget": { "type": ["integer", "null"] },
+        "probes_consumed": { "type": "integer" },
+        "probes_remaining": { "type": ["integer", "null"] }
+      }
     }
   }
 }

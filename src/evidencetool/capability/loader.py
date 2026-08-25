@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+import hashlib
 import math
 from pathlib import Path
 from typing import Any
 
 import yaml
 
-from evidencetool.capability.models import CapabilitySet, KubernetesCapability, NetworkCapability
+from evidencetool.capability.models import (
+    CapabilityDenied,
+    CapabilitySet,
+    KubernetesCapability,
+    NetworkCapability,
+)
 
 
 def _parse_ports(value: object) -> frozenset[int] | None:
@@ -91,8 +97,17 @@ def _parse_kubernetes(raw: Any) -> KubernetesCapability:
     )
 
 
-def load_capability_policy(path: str | Path) -> CapabilitySet:
+def load_capability_policy(
+    path: str | Path, expected_hash: str | None = None
+) -> CapabilitySet:
     content = Path(path).read_text(encoding="utf-8")
+    sha256_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+    if expected_hash and sha256_hash.lower() != expected_hash.lower():
+        raise CapabilityDenied(
+            f"Capability policy tamper detected: expected hash {expected_hash}, got {sha256_hash}"
+        )
+
     raw = yaml.safe_load(content)
     if not isinstance(raw, dict):
         raise ValueError("Invalid capability policy: expected a YAML mapping.")
@@ -119,4 +134,5 @@ def load_capability_policy(path: str | Path) -> CapabilitySet:
         kubernetes=kubernetes,
         allowed_providers=frozenset(allowed_providers_raw) if allowed_providers_raw is not None else None,
         require_trusted_providers=require_trusted,
+        policy_fingerprint=sha256_hash,
     )

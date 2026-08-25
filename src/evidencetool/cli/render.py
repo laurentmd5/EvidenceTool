@@ -20,7 +20,7 @@ _STATUS_SYMBOL = {
 
 
 def to_contract_dict(result: DiagnosisResult) -> dict[str, typing.Any]:
-    return {
+    res: dict[str, typing.Any] = {
         "incident": {
             "id": result.incident.id,
             "type": result.incident.type,
@@ -35,6 +35,17 @@ def to_contract_dict(result: DiagnosisResult) -> dict[str, typing.Any]:
             "action": result.recommendation,
         },
     }
+    if result.authority is not None:
+        res["authority"] = {
+            "caller_id": result.authority.caller_id,
+            "caller_type": result.authority.caller_type,
+            "session_id": result.authority.session_id,
+            "policy_fingerprint": result.authority.policy_fingerprint,
+            "probes_budget": result.authority.probes_budget,
+            "probes_consumed": result.authority.probes_consumed,
+            "probes_remaining": result.authority.probes_remaining,
+        }
+    return res
 
 
 def to_json(result: DiagnosisResult) -> str:

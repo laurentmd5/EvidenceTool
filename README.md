@@ -1,8 +1,8 @@
-# EvidenceTool (V0.8 — Distributed Diagnosis & Multi-Domain Operational Evidence Engine)
+# EvidenceTool (V0.9 — AI-Agent Ready & Operational Reasoning Engine)
 
 > EvidenceTool does not automate actions first. It makes operational decisions explainable first.
 
-**EvidenceTool** is a read-only, policy-aware operational evidence engine that correlates infrastructure, application, data, and dependency signals to identify probable root causes before allowing remediation.
+**EvidenceTool** is a read-only, policy-aware operational reasoning and safety gateway that correlates infrastructure, application, data, and dependency signals to identify root causes and gate automated remediation.
 
 ---
 
@@ -135,6 +135,48 @@ Exit codes are meaningful for scripting/CI:
 - `1` = BLOCK
 - `2` = HUMAN_REVIEW
 - `3` = INTEGRITY_VIOLATION
+
+## Python SDK for AI Agents (`evidencetool.agent`)
+
+Autonomous AI agents (LangChain, AutoGen, CrewAI, Kubernetes controllers) can evaluate proposed remediation actions through a type-safe safety gateway before executing:
+
+```python
+from evidencetool.agent import AgentSafetyGate, AgentDiagnosisRequest
+
+# 1. Initialize gate with capability restrictions, catalogs, and policies
+gate = AgentSafetyGate(
+    capability_policy="capabilities/agent-restricted.yaml",
+    catalog="catalogs/distributed.yaml",
+    default_policy="policies/distributed.yaml",
+)
+
+# 2. Submit agent proposed action for deterministic evaluation
+request = AgentDiagnosisRequest(
+    agent_id="remediation-bot-42",
+    action="restart_application",
+    target="orders-api",
+    context={
+        "url": "http://127.0.0.1:8080/health",
+        "db_host": "127.0.0.1",
+        "db_port": "5432",
+        "redis_host": "127.0.0.1",
+        "redis_port": "6379",
+        "target": "127.0.0.1",
+        "port": "5432",
+    }
+)
+
+result = gate.evaluate(request)
+
+if result.is_allowed:
+    # Safely proceed with remediation
+    print(f"Action ALLOWED by EvidenceTool: {result.status}")
+else:
+    # Gated: action blocked with explainable root cause
+    print(f"Action BLOCKED: {result.reason}")
+    print(f"Root cause evidence: {result.root_cause_evidence}")
+    print(f"Recommendation: {result.recommendation}")
+```
 
 ## Example output
 

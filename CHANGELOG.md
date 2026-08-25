@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.0] - 2026-08-25
+### Added
+- **AI-Agent SDK & Safety Gateway (`evidencetool.agent`)**: Pure Python programmatic safety gateway providing `AgentSafetyGate`, `AgentDiagnosisRequest`, and `AgentDiagnosisResult` to evaluate autonomous AI agent actions before execution.
+- **Caller Identity & Authority Tracking**: Added `CallerIdentity` and `CallerType` (`AI_AGENT`, `HUMAN`, `AUTOMATED_PIPELINE`) with session tracing.
+- **Probe Budget Quotas**: Added dynamic `ProbeTracker` with strict quota enforcement (`max_probes`) to prevent denial-of-service / runaway looping from automated callers.
+- **Capability Anti-Tampering**: Added SHA-256 fingerprint computation and verification for capability policy YAML files to prevent prompt-injection escalation.
+- **JSON Output Contract Enrichment**: Extended `schemas/diagnosis-result.schema.json` and CLI renderers with the optional `authority` block.
+- **Agent SDK Test Suite (`tests/test_agent_sdk.py`)**: 4 comprehensive scenarios verifying gate evaluation, destructive action blocking, probe budget exhaustion, and tamper detection.
+
 ## [0.8.0] - 2026-08-25
 ### Added
 - **Distributed Diagnosis & Cross-Domain Multi-Signal Correlation**: Introduced cross-domain diagnosis correlating application symptoms with data, cache, and network transport signals.

@@ -1,7 +1,7 @@
 # EvidenceTool — PRODUCT_CONTRACT.md
 
-**Version:** 8.0 (V0.8 Distributed Contract)
-**Status:** Active specification for V0.8 Multi-Domain & Distributed Engine
+**Version:** 9.0 (V0.9 AI-Agent Safety Gateway)
+**Status:** Active specification for V0.9 AI-Agent Safety Gateway & Operational Reasoning
 **Scope:** This document defines the minimal functional and architectural contract that the EvidenceTool codebase must respect.
 
 ---
@@ -549,3 +549,22 @@ In distributed architectures, single-layer observations cannot distinguish sympt
 - **`CACHE_FAILURE_DATABASE_OVERLOAD`**: Redis memory saturation (OOM) + Database query latency spike.
 - **`UPSTREAM_MICROSERVICE_OUTAGE`**: Application 503 / circuit breaker triggered + Local database PASS + Cache PASS.
 - **`TOTAL_NETWORK_PARTITION`**: Multi-port simultaneous unreachable states across all remote endpoints.
+
+---
+
+## 21. AI-Agent Safety Gateway & Authority Model (V0.9 Contract)
+
+### 21.1 The 4-Tier Architectural Separation
+EvidenceTool establishes four strictly decoupled layers for operational reasoning:
+1. **Observation (Facts)**: Pure, read-only system observations collected with zero side-effects.
+2. **Situation (Semantics)**: Multi-signal state correlation evaluating composite signatures against formal catalogs.
+3. **Governance (Action Policy)**: Invariant safety rules determining if a remediation action is allowed (`BLOCK > HUMAN_REVIEW > ALLOW`).
+4. **Authority (Capability Boundary)**: Zero-trust execution envelope restricting the caller's allowed targets, ports, namespaces, and probe budgets.
+
+### 21.2 Probe Budget Quota Invariant
+Automated and AI-agent callers operate under strict resource and probe limits:
+- Exceeding `max_probes` terminates execution immediately with `CapabilityDenied`.
+- Denials are recorded in `AuthorityMetadata` and evaluated fail-closed as `BLOCK`.
+
+### 21.3 Capability Anti-Tampering
+Capability policies can be pinned to a cryptographic SHA-256 digest. Any modification of the policy content by an untrusted or prompt-injected caller is immediately rejected prior to execution.
