@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from typing import Mapping, Protocol
 
+from evidencetool.capability.models import ExecutionContext
 from evidencetool.models.observation import Observation
 
 
@@ -15,8 +16,11 @@ class ProviderContext:
     Provides generic access to CLI arguments and global configuration.
     """
 
-    def __init__(self, kwargs: Mapping[str, str]):
+    def __init__(self, kwargs: Mapping[str, str], execution: ExecutionContext | None = None):
         self._kwargs = kwargs
+        self.execution = execution or ExecutionContext(
+            transport_host=kwargs.get("host") or None
+        )
 
     def get(self, key: str, default: str = "") -> str:
         """Get a configuration value, returning `default` if not present."""

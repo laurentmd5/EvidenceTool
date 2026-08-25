@@ -3,9 +3,16 @@
 EvidenceTool is specifically designed to be executed by autonomous agents safely. This guide defines how an agent should wrap EvidenceTool.
 
 ## 1. Freshness Rule
-Agents must re-run EvidenceTool immediately before executing an action. Observations older than a configured threshold (default 60s) are considered stale and must be recollected.
+Agents must re-run EvidenceTool immediately before executing an action. Observations older than the policy's configured `max_age` are considered stale and must be recollected. Policies that require a 60-second freshness window must declare `max_age: 60` explicitly.
 
 An agent must NEVER execute an action based on a previous `ALLOW` decision if that decision relies on stale evidence.
+
+For automated execution, the harness should provide an explicit capability policy. It may restrict network
+operations, targets, ports, probe count, and provider trust without changing the diagnostic policy that interprets
+the resulting evidence. Capability denial or an unapproved provider is an integrity failure and must abort the action.
+
+External providers used by an automated harness should be listed in an external manifest and verified by SHA-256
+before activation. Do not treat discovery alone as approval.
 
 ## 2. validate_decision_integrity
 Every JSON output produced by EvidenceTool includes a cryptographically stable representation of the decision.

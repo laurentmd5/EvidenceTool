@@ -34,7 +34,11 @@
               "message": { "type": "string" },
               "observed_at": { "type": "string", "format": "date-time" },
               "collected_at": { "type": "string", "format": "date-time" },
-              "host": { "type": ["string", "null"] }
+              "host": { "type": ["string", "null"] },
+              "execution_scope": { "type": ["string", "null"] },
+              "target": { "type": ["string", "null"] },
+              "capability": { "type": ["string", "null"] },
+              "transport_status": { "type": ["string", "null"] }
             }
           },
           "is_stale": { "type": "boolean" }

@@ -12,6 +12,7 @@ installed on the host it's inspecting.
 from __future__ import annotations
 
 import os
+import shlex
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -33,15 +34,14 @@ def run_command(args: list[str], timeout: float = 5.0, host: str | None = None) 
         control_path = "/tmp/evidencetool_ssh_%h_%p_%r"
         actual_args = [
             "ssh",
-            "--",
             "-o", "BatchMode=yes",
             "-o", "ControlMaster=auto",
             "-o", f"ControlPath={control_path}",
             "-o", "ControlPersist=60s",
             "-o", "StrictHostKeyChecking=yes",
+            "--",
             host,
-            "--"
-        ] + args
+        ] + [shlex.quote(arg) for arg in args]
 
     try:
         proc = subprocess.run( # nosec B603

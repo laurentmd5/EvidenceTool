@@ -31,6 +31,7 @@ import time
 import uuid
 from dataclasses import dataclass
 
+from evidencetool.capability.models import CapabilityDenied, ExecutionContext
 from evidencetool.decision.engine import decide
 from evidencetool.decision.integrity import validate_decision_integrity
 from evidencetool.evidence.evaluator import evaluate_observation
@@ -60,9 +61,10 @@ def diagnose(  # noqa: C901
     policy: Policy,
     context: dict[str, str],
     catalog: list[Situation] | None = None,
+    execution: ExecutionContext | None = None,
 ) -> DiagnosisResult:
     from evidencetool.providers.base import ProviderContext
-    from evidencetool.providers.registry import get_provider, load_all_providers
+    from evidencetool.providers.registry import get_provider, get_provider_trust, load_all_providers
 
     # Ensure all built-in providers are registered
     load_all_providers()
@@ -92,12 +94,48 @@ def diagnose(  # noqa: C901
                             needed_namespaces.add(parts[0])
 
     # 2. Instantiate and run only the needed providers
-    provider_context = ProviderContext(context)
-    for namespace in needed_namespaces:
+    provider_context = ProviderContext(context, execution=execution)
+    for namespace in sorted(needed_namespaces):
         t0 = time.time()
         try:
+            if execution and not execution.capabilities.allows_provider(namespace):
+                raise CapabilityDenied(f"Provider '{namespace}' is not authorized by capability policy.")
+            if execution and execution.capabilities.require_trusted_providers:
+                trust = get_provider_trust(namespace)
+                if trust.value not in {"builtin", "approved"}:
+                    raise CapabilityDenied(
+                        f"Provider '{namespace}' has trust level '{trust.value}' and is not approved."
+                    )
             provider_instance = get_provider(namespace)
-            observations += provider_instance.collect(provider_context)
+            collected = provider_instance.collect(provider_context)
+            for observation in collected:
+                valid_namespace = observation.id.startswith(f"{namespace}.")
+                valid_docker_alias = namespace in {"docker", "container"} and observation.id.startswith("docker.")
+                valid_source = observation.source in {namespace, "docker"}
+                if not valid_source or not (valid_namespace or valid_docker_alias):
+                    raise CapabilityDenied(
+                        f"Provider '{namespace}' returned invalid observation '{observation.id}'."
+                    )
+            observations += collected
+        except CapabilityDenied as exc:
+            from datetime import datetime, timezone
+
+            from evidencetool.models.observation import Observation
+
+            failed_ids = [req.id for req in policy.required_evidence if req.id.startswith(f"{namespace}.")]
+            for req_id in failed_ids:
+                observations.append(
+                    Observation(
+                        id=req_id,
+                        source=namespace,
+                        category="security",
+                        collector="diagnose_engine",
+                        method="capability_policy",
+                        value={"status": "UNKNOWN", "capability_denied": True},
+                        message=str(exc),
+                        observed_at=datetime.now(timezone.utc),
+                    )
+                )
         except Exception as exc:
             import traceback
             from datetime import datetime, timezone
@@ -135,6 +173,15 @@ def diagnose(  # noqa: C901
     for e in evidence:
         m.evidence_status_counts[e.status] += 1
 
+    capability_violation = any(
+        e.observation.value.get("capability_denied") is True
+        for e in evidence
+        if isinstance(e.observation.value, dict)
+    )
+    if capability_violation:
+        m.integrity_violation = 1
+        m.success = False
+
     # 4. Decide
     t0 = time.time()
     from evidencetool.decision.correlation import correlate_state
@@ -153,9 +200,7 @@ def diagnose(  # noqa: C901
     integrity_result = validate_decision_integrity(decision, policy, evidence, state=state)
     if not integrity_result.is_valid:
         m.integrity_violation = 1
-        m.success = False
-    else:
-        m.success = True
+    m.success = not capability_violation and integrity_result.is_valid
 
     recommendation_text = recommend(decision)
 

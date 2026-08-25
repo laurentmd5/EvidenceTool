@@ -1,3 +1,5 @@
+import pytest
+
 from evidencetool.models.policy import OnUnknown, RiskLevel
 from evidencetool.policy.loader import load_policy_from_string
 
@@ -67,3 +69,17 @@ human_approval: false
     policy = load_policy_from_string(text)
     req = policy.requirement_for("nginx.config.valid")
     assert req.max_age == 30
+
+
+@pytest.mark.parametrize("max_age", [".nan", ".inf", "-.inf", -1])
+def test_load_policy_rejects_invalid_max_age(max_age):
+    text = f"""
+version: "1"
+action: restart_nginx
+risk: LOW
+required_evidence:
+  - id: nginx.config.valid
+    max_age: {max_age}
+"""
+    with pytest.raises(ValueError, match="max_age"):
+        load_policy_from_string(text)

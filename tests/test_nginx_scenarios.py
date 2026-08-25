@@ -128,10 +128,10 @@ def test_scenario_certificate_key_mismatch(tmp_path, policy, monkeypatch):
             from unittest.mock import Mock
             if "-checkend" in args:
                 return Mock(returncode=0, stdout="", stderr="")
-            if "-modulus" in args and "cert1" in " ".join(args):
-                return Mock(returncode=0, stdout="Modulus=CERT1", stderr="")
-            if "-modulus" in args and "cert2" in " ".join(args):
-                return Mock(returncode=0, stdout="Modulus=CERT2", stderr="")
+            if ("-pubkey" in args or "-pubout" in args) and "cert1" in " ".join(args):
+                return Mock(returncode=0, stdout="PUBLIC_KEY_CERT1", stderr="")
+            if ("-pubkey" in args or "-pubout" in args) and "cert2" in " ".join(args):
+                return Mock(returncode=0, stdout="PUBLIC_KEY_CERT2", stderr="")
         return original_run_command(args, **kwargs)
     monkeypatch.setattr("subprocess.run", mock_run_command)
 
@@ -157,8 +157,8 @@ def test_scenario_valid_certificate_allows(tmp_path, policy, monkeypatch):
             from unittest.mock import Mock
             if "-checkend" in args:
                 return Mock(returncode=0, stdout="", stderr="")
-            if "-modulus" in args:
-                return Mock(returncode=0, stdout="Modulus=ABCD", stderr="")
+            if "-pubkey" in args or "-pubout" in args:
+                return Mock(returncode=0, stdout="PUBLIC_KEY_ABCD", stderr="")
         return original_run_command(args, **kwargs)
     monkeypatch.setattr("subprocess.run", mock_run_command)
 
@@ -354,8 +354,8 @@ def test_07_full_stack_normal_evaluation_allows(tmp_path, policy, monkeypatch):
             from unittest.mock import Mock
             if "-checkend" in args:
                 return Mock(returncode=0, stdout="", stderr="")
-            if "-modulus" in args:
-                return Mock(returncode=0, stdout="Modulus=ABCD", stderr="")
+            if "-pubkey" in args or "-pubout" in args:
+                return Mock(returncode=0, stdout="PUBLIC_KEY_ABCD", stderr="")
         return original_run_command(args, **kwargs)
     monkeypatch.setattr("subprocess.run", mock_run_command)
 
@@ -380,8 +380,8 @@ def test_json_schema_validation(tmp_path, policy, monkeypatch):
             from unittest.mock import Mock
             if "-checkend" in args:
                 return Mock(returncode=0, stdout="", stderr="")
-            if "-modulus" in args:
-                return Mock(returncode=0, stdout="Modulus=ABCD", stderr="")
+            if "-pubkey" in args or "-pubout" in args:
+                return Mock(returncode=0, stdout="PUBLIC_KEY_ABCD", stderr="")
         return original_run_command(args, **kwargs)
     monkeypatch.setattr("subprocess.run", mock_run_command)
 

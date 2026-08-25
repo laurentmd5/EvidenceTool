@@ -33,6 +33,10 @@ class Observation:
         default_factory=lambda: datetime.now(timezone.utc)
     )  # when EvidenceTool actually ran the collector
     host: str | None = None  # the target host the observation was collected from (None = local)
+    execution_scope: str | None = None
+    target: str | None = None
+    capability: str | None = None
+    transport_status: str | None = None
 
     def age_seconds(self, now: datetime | None = None) -> float:
         """Age of the observation relative to `now` (defaults to current time)."""
@@ -51,4 +55,8 @@ class Observation:
             "observed_at": self.observed_at.isoformat(),
             "collected_at": self.collected_at.isoformat(),
             "host": self.host,
+            "execution_scope": self.execution_scope,
+            "target": self.target,
+            "capability": self.capability,
+            "transport_status": self.transport_status,
         }

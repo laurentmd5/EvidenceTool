@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 
 import pytest
 
+from evidencetool.capability.models import CapabilitySet, ExecutionContext
 from evidencetool.diagnose import diagnose
 from evidencetool.models.decision import DecisionStatus
 from evidencetool.models.observation import Observation
@@ -85,6 +86,42 @@ def test_C1_unknown_provider(base_policy):
     # Verify the synthetic observation has the correct error message
     obs = [e.observation for e in result.evidence if e.id == "unknown.config_valid"][0]
     assert "No provider registered for namespace: 'unknown'" in obs.message
+
+
+def test_provider_allowlist_denies_before_collect(base_policy):
+    policy = Policy(
+        version="1",
+        action="dummy_action",
+        risk=RiskLevel.LOW,
+        required_evidence=[EvidenceRequirement(id="dummy.is_ok", on_unknown=OnUnknown.BLOCK)],
+    )
+    result = diagnose(
+        "dummy_target",
+        policy,
+        {},
+        execution=ExecutionContext(capabilities=CapabilitySet(allowed_providers=frozenset({"nginx"}))),
+    )
+    assert result.metrics.success is False
+    assert result.evidence[0].observation.value["capability_denied"] is True
+
+
+def test_untrusted_provider_denied_when_trust_is_required(base_policy):
+    policy = Policy(
+        version="1",
+        action="dummy_action",
+        risk=RiskLevel.LOW,
+        required_evidence=[EvidenceRequirement(id="dummy.is_ok", on_unknown=OnUnknown.BLOCK)],
+    )
+    result = diagnose(
+        "dummy_target",
+        policy,
+        {},
+        execution=ExecutionContext(
+            capabilities=CapabilitySet(require_trusted_providers=True)
+        ),
+    )
+    assert result.metrics.success is False
+    assert result.evidence[0].observation.value["capability_denied"] is True
 
 
 # --- TEST C2: Evidence Unknown ---

@@ -43,6 +43,8 @@ def test_ssh_transport_execution():
         assert "BatchMode=yes" in args
         assert "ControlMaster=auto" in args
         assert "StrictHostKeyChecking=yes" in args
+        assert args.index("--") > args.index("StrictHostKeyChecking=yes")
+        assert args.index("--") < args.index("prod-web-01")
         assert "echo" in args
         assert "hello" in args
 
@@ -79,3 +81,18 @@ def test_ssh_business_error_classification():
         # Crucial: ran should be True because transport worked, command just failed
         assert result.ran is True
         assert result.returncode == 1
+
+
+def test_ssh_remote_arguments_are_shell_quoted():
+    with patch("subprocess.run") as mock_run:
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = ""
+        mock_proc.stderr = ""
+        mock_run.return_value = mock_proc
+
+        run_command(["test", "-e", "/tmp/x; touch /tmp/pwned", "$(id)"], host="prod-web-01")
+
+        args = mock_run.call_args[0][0]
+        assert "'/tmp/x; touch /tmp/pwned'" in args
+        assert "'$(id)'" in args

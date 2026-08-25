@@ -245,6 +245,32 @@ def test_12_integrity_block_without_evidence(observation_factory, policy_factory
     assert "Decision is BLOCK but blocking_evidence is empty (required for legacy policies)." in result.violations[0]
 
 
+def test_integrity_rejects_unknown_blocking_evidence(observation_factory, policy_factory):
+    from evidencetool.decision.integrity import validate_decision_integrity
+    from evidencetool.models.decision import Decision
+
+    policy = policy_factory(required_evidence=["e1"])
+    evidence = _evidence_list(observation_factory, [("e1", "FAIL", 0)])
+    fake_decision = Decision(status=DecisionStatus.BLOCK, blocking_evidence=["not-real"], reason="test")
+
+    result = validate_decision_integrity(fake_decision, policy, evidence)
+    assert not result.is_valid
+    assert "references missing evidence: not-real" in result.violations[0]
+
+
+def test_integrity_rejects_duplicate_evidence_ids(observation_factory, policy_factory):
+    from evidencetool.decision.integrity import validate_decision_integrity
+    from evidencetool.models.decision import Decision
+
+    policy = policy_factory(required_evidence=["e1"])
+    evidence = _evidence_list(observation_factory, [("e1", "PASS", 0), ("e1", "PASS", 0)])
+    fake_decision = Decision(status=DecisionStatus.ALLOW, blocking_evidence=[], reason="test")
+
+    result = validate_decision_integrity(fake_decision, policy, evidence)
+    assert not result.is_valid
+    assert "duplicate IDs: e1" in result.violations[0]
+
+
 def test_13_integrity_precedence(observation_factory, policy_factory):
     from evidencetool.decision.integrity import validate_decision_integrity
     from evidencetool.models.decision import Decision

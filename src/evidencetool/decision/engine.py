@@ -106,6 +106,8 @@ def _decide_v2(state: OperationalState, policy: Policy) -> Decision:
         blocking_ev_set: set[str] = set()
         for allow_id in policy.allow:
             blocking_ev_set.update(state.discrepancies.get(allow_id, []))
+        if not blocking_ev_set:
+            blocking_ev_set.update(req.id for req in policy.required_evidence)
         return Decision(
             status=DecisionStatus.BLOCK,
             reason="No known situation matches the allowed situations for this action.",

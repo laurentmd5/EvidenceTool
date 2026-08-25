@@ -351,3 +351,25 @@ def test_docker_remote_ssh(monkeypatch):
     assert obs[0].host == "prod-docker-01"
 
 
+def test_docker_logs_are_bounded_and_redacted(monkeypatch):
+    provider = DockerProvider()
+
+    def mock_run_command(args, **kwargs):
+        if "inspect" in args:
+            return Mock(ran=True, returncode=0, stdout=_make_inspect(running=True), stderr="")
+        return Mock(
+            ran=True,
+            returncode=0,
+            stdout="x" * 9000 + " password=super-secret token=abc123",
+            stderr="",
+        )
+
+    monkeypatch.setattr("evidencetool.providers.docker.run_command", mock_run_command)
+
+    observations = provider.collect(ProviderContext({"container": "test_app"}))
+    logs = next(item for item in observations if item.id == "container.logs")
+    assert len(logs.value["tail"]) <= 8192
+    assert "super-secret" not in logs.value["tail"]
+    assert "abc123" not in logs.value["tail"]
+
+

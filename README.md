@@ -181,6 +181,56 @@ pip-audit
 
 ## Writing a Policy
 
+## Execution Capability Policy
+
+Diagnostic policy and execution capabilities are separate contracts. A diagnostic policy explains how evidence
+affects a decision; a capability policy controls what the caller may collect. The local CLI remains permissive by
+default, while automated callers can provide an explicit capability policy:
+
+```yaml
+capabilities:
+  network:
+    enabled: true
+    operations: [tcp_connect, dns_lookup]
+    targets: [10.0.10.0/24, redis.internal.example]
+    ports: [6379, 443]
+    max_probes: 10
+    timeout_seconds: 2
+  providers:
+    allowed: [network, systemd]
+```
+
+```bash
+evidencetool diagnose network --capability-policy capabilities/agent.yaml \
+  --target-host redis.internal.example --port 6379
+```
+
+Private and loopback targets are not blocked globally. They are available to callers whose capability policy
+explicitly authorizes them. A denied capability is reported as a security/integrity violation and exits with code 3.
+
+Provider trust is separate from provider discovery. Built-in providers are trusted by default; dynamically discovered
+providers are experimental unless explicitly approved. Automated callers can require trusted providers:
+
+```yaml
+capabilities:
+  providers:
+    require_trusted: true
+    allowed: [nginx, systemd, tls]
+```
+
+External providers can be activated through an external manifest. The source hash is verified before the module is
+imported:
+
+```yaml
+plugins:
+  - namespace: redis
+    module: evidencetool_redis.provider
+    sha256: "<64 hexadecimal characters>"
+```
+
+The legacy dynamic discovery path remains available for local extension workflows. Automated callers should use a
+manifest and `providers.require_trusted: true`.
+
 ```yaml
 version: "1.0"
 action: restart_nginx

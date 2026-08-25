@@ -32,14 +32,27 @@ def validate_decision_integrity(  # noqa: C901
     state: OperationalState | None = None
 ) -> IntegrityResult:
     violations = []
+    evidence_ids = [item.id for item in evidence]
+    duplicate_ids = sorted({item_id for item_id in evidence_ids if evidence_ids.count(item_id) > 1})
+    if duplicate_ids:
+        violations.append(f"Evidence contains duplicate IDs: {', '.join(duplicate_ids)}.")
+
+    unknown_blocking_ids = sorted(set(decision.blocking_evidence) - set(evidence_ids))
+    if unknown_blocking_ids:
+        violations.append(
+            f"Decision blocking_evidence references missing evidence: {', '.join(unknown_blocking_ids)}."
+        )
 
     # 1. Recommendation must not influence Decision. (This is structurally enforced
     #    because Recommendation is produced *after* Decision, but we note it).
 
     # 2. BLOCK invariants
     if decision.status == DecisionStatus.BLOCK:
-        if not decision.blocking_evidence and not (policy.allow or policy.blocked_by):
-            violations.append("Decision is BLOCK but blocking_evidence is empty (required for legacy policies).")
+        if not decision.blocking_evidence:
+            if policy.allow or policy.blocked_by:
+                violations.append("Decision is BLOCK but blocking_evidence is empty (required for situational policies).")
+            else:
+                violations.append("Decision is BLOCK but blocking_evidence is empty (required for legacy policies).")
 
     # 3. HUMAN_REVIEW invariants
     if decision.status == DecisionStatus.HUMAN_REVIEW:

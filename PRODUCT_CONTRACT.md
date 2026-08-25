@@ -16,6 +16,23 @@ EvidenceTool separates **observation**, **recommendation**, **authorization**, a
 
 ## 1. Scope V0.2 & V0.3
 
+### 1.1 Execution capability boundary
+
+Execution capabilities are separate from diagnostic policy. The capability boundary determines whether a caller may
+collect a given observation; the diagnostic policy determines how collected evidence affects an operational decision.
+The network provider is not globally restricted from private or loopback targets. A caller may authorize those
+targets explicitly through an execution capability policy, including operation, target, port, probe-count and
+timeout limits. Capability denial is a security/integrity failure, not an ordinary network result.
+
+Provider discovery and provider trust are separate. Built-in providers are identified as `builtin`; dynamically
+discovered providers are `experimental` until explicitly approved. Automated execution may require trusted providers
+through its capability policy. The diagnostic decision remains independent from both capability authorization and
+provider trust.
+
+External providers may be activated through a manifest containing their namespace, import module and SHA-256 source
+hash. The hash is verified before import. Legacy dynamic discovery remains available for local extension workflows;
+automated callers must use explicit approval and may require trusted providers.
+
 **Definition:**
 
 > A read-only operational evidence and decision tool for diagnosing production incidents and determining whether a proposed remediation action is sufficiently justified by available evidence.
@@ -80,10 +97,13 @@ Every observation produced by a provider must conform to this structure:
 
 ### 2.1 Freshness
 
-Freshness is derived from `observed_at` relative to evaluation time, using a default threshold:
+Freshness is derived from `observed_at` relative to evaluation time when a policy sets `max_age` for an evidence item:
 
-- `FRESH`: observed less than **60 seconds** before evaluation.
-- `STALE`: observed 60 seconds or more before evaluation.
+- `FRESH`: observed less than the configured `max_age` before evaluation.
+- `STALE`: observed `max_age` seconds or more before evaluation.
+
+If `max_age` is omitted, no freshness constraint is applied. Integrations that require a 60-second freshness
+window must declare `max_age: 60` explicitly in the policy.
 
 ---
 
@@ -293,7 +313,7 @@ EvidenceTool explicitly does **not**:
 - modify the system in any way;
 - automatically restart or remediate anything;
 - perform auto-remediation of any kind;
-- support Docker or Kubernetes (planned for V0.4 / V0.5);
+- support Kubernetes yet;
 - use an LLM anywhere in the evidence, risk, or decision path;
 - expose a dashboard or web UI;
 - compute a single aggregate 0–100 evidence score;

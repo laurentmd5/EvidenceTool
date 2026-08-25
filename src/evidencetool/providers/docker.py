@@ -17,6 +17,7 @@ Strict Read-Only Invariant:
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -26,6 +27,15 @@ from evidencetool.providers.base import ProviderContext
 from evidencetool.providers.registry import provider
 
 COLLECTOR = "docker_provider"
+MAX_LOG_CHARS = 8192
+_SENSITIVE_LOG_PATTERN = re.compile(
+    r"(?i)(password|passwd|secret|token|api[_-]?key|authorization)(\s*[:=]\s*)([^\s,;]+)"
+)
+
+
+def _sanitize_logs(logs: str) -> str:
+    bounded = logs[-MAX_LOG_CHARS:]
+    return _SENSITIVE_LOG_PATTERN.sub(r"\1\2[REDACTED]", bounded)[-MAX_LOG_CHARS:]
 
 
 def _now() -> datetime:
@@ -306,7 +316,7 @@ class DockerProvider:
                 val = {"status": "UNKNOWN", "returncode": logs_res.returncode, "stderr": logs_res.stderr}
                 msg = f"docker logs exited {logs_res.returncode}: {logs_res.stderr}"
             else:
-                tail = (logs_res.stdout + "\n" + logs_res.stderr).strip()
+                tail = _sanitize_logs((logs_res.stdout + "\n" + logs_res.stderr).strip())
                 state = inspect_data.get("State", {})
                 oom_killed = state.get("OOMKilled", False)
                 if oom_killed:

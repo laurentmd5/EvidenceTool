@@ -5,8 +5,15 @@ Enables dynamic discovery of providers based on their namespaces.
 
 from __future__ import annotations
 
+import hashlib
+import importlib
+import importlib.util
 from dataclasses import dataclass
+from enum import Enum
+from pathlib import Path
 from typing import Callable, Type
+
+import yaml
 
 from evidencetool.providers.base import Provider
 
@@ -17,21 +24,51 @@ class ProviderLoadError:
     module: str
     error: str
 
+
+@dataclass(frozen=True)
+class ProviderManifest:
+    namespace: str
+    module: str
+    sha256: str
+
 _PROVIDERS: dict[str, Type[Provider]] = {}
 _FAILED_PROVIDERS: dict[str, ProviderLoadError] = {}
+_PROVIDER_TRUST: dict[str, "ProviderTrust"] = {}
 
 
-def register_provider(namespace: str, provider_cls: Type[Provider]) -> None:
+class ProviderTrust(str, Enum):
+    BUILTIN = "builtin"
+    APPROVED = "approved"
+    EXPERIMENTAL = "experimental"
+    DISABLED = "disabled"
+
+
+BUILTIN_NAMESPACES = frozenset({
+    "container", "docker", "filesystem", "network", "nginx", "process", "systemd", "tls"
+})
+
+
+def register_provider(
+    namespace: str,
+    provider_cls: Type[Provider],
+    trust: ProviderTrust | None = None,
+) -> None:
     """Register a provider class under a specific namespace."""
     if namespace in _PROVIDERS:
         raise ValueError(f"Provider namespace '{namespace}' is already registered.")
     _PROVIDERS[namespace] = provider_cls
+    _PROVIDER_TRUST[namespace] = trust or (
+        ProviderTrust.BUILTIN if namespace in BUILTIN_NAMESPACES else ProviderTrust.EXPERIMENTAL
+    )
 
 
-def provider(namespace: str) -> Callable[[Type[Provider]], Type[Provider]]:
+def provider(
+    namespace: str,
+    trust: ProviderTrust | None = None,
+) -> Callable[[Type[Provider]], Type[Provider]]:
     """Decorator to register a provider."""
     def decorator(cls: Type[Provider]) -> Type[Provider]:
-        register_provider(namespace, cls)
+        register_provider(namespace, cls, trust=trust)
         return cls
     return decorator
 
@@ -48,19 +85,32 @@ def get_provider(namespace: str) -> Provider:
     return cls()
 
 
-def load_all_providers() -> None:
+def get_provider_trust(namespace: str) -> ProviderTrust:
+    if namespace not in _PROVIDERS:
+        raise ValueError(f"No provider registered for namespace: '{namespace}'")
+    return _PROVIDER_TRUST[namespace]
+
+
+def load_all_providers(include_experimental: bool = True) -> None:
     """
     Dynamically discovers and imports all provider modules in the `providers` package.
     Any class decorated with `@provider` in these modules will automatically register itself.
     """
-    import importlib
     import pkgutil
 
     import evidencetool.providers
 
+    builtin_modules = {
+        "docker", "filesystem", "network", "nginx", "process", "systemd", "tls"
+    }
     package = evidencetool.providers
     for _, module_name, is_pkg in pkgutil.iter_modules(package.__path__):
-        if not is_pkg and not module_name.startswith("_") and module_name not in ("base", "registry"):
+        if (
+            not is_pkg
+            and not module_name.startswith("_")
+            and module_name not in ("base", "registry")
+            and (include_experimental or module_name in builtin_modules)
+        ):
             full_module_name = f"{package.__name__}.{module_name}"
             try:
                 importlib.import_module(full_module_name)
@@ -73,3 +123,41 @@ def load_all_providers() -> None:
                 )
                 import logging
                 logging.getLogger(__name__).error(f"Failed to load provider module {full_module_name}: {e}")
+
+
+def load_approved_plugins(manifest_path: str | Path) -> None:
+    """Verify external plugin source hashes before importing plugin modules."""
+    raw = yaml.safe_load(Path(manifest_path).read_text(encoding="utf-8"))
+    if not isinstance(raw, dict) or not isinstance(raw.get("plugins"), list):
+        raise ValueError("Invalid provider manifest: 'plugins' must be a list.")
+
+    for index, item in enumerate(raw["plugins"]):
+        if not isinstance(item, dict):
+            raise ValueError(f"Invalid provider manifest: plugins[{index}] must be a mapping.")
+        namespace = item.get("namespace")
+        module = item.get("module")
+        expected_hash = item.get("sha256")
+        if (
+            not isinstance(namespace, str)
+            or not isinstance(module, str)
+            or not isinstance(expected_hash, str)
+            or not namespace
+            or not module
+            or not expected_hash
+        ):
+            raise ValueError(f"Invalid provider manifest: plugins[{index}] requires namespace, module and sha256.")
+        if len(expected_hash) != 64 or any(character not in "0123456789abcdefABCDEF" for character in expected_hash):
+            raise ValueError(f"Invalid provider manifest: plugins[{index}].sha256 is invalid.")
+
+        spec = importlib.util.find_spec(module)
+        if spec is None or not spec.origin or spec.origin in {"built-in", "frozen"}:
+            raise ValueError(f"Provider plugin module '{module}' has no verifiable source file.")
+        source = Path(spec.origin).read_bytes()
+        actual_hash = hashlib.sha256(source).hexdigest()
+        if actual_hash.lower() != expected_hash.lower():
+            raise ValueError(f"Provider plugin '{module}' failed SHA-256 verification.")
+
+        importlib.import_module(module)
+        if namespace not in _PROVIDERS:
+            raise ValueError(f"Provider plugin '{module}' did not register namespace '{namespace}'.")
+        _PROVIDER_TRUST[namespace] = ProviderTrust.APPROVED

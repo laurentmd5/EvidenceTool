@@ -24,8 +24,8 @@ def test_tls_all_pass(monkeypatch):
     def mock_run_command(args, **kwargs):
         if "-checkend" in args:
             return Mock(ran=True, returncode=0, stdout="", stderr="")
-        if "-modulus" in args:
-            return Mock(ran=True, returncode=0, stdout="Modulus=A1B2C3D4\n", stderr="")
+        if "-pubout" in args or "-pubkey" in args:
+            return Mock(ran=True, returncode=0, stdout="PUBLIC_KEY\n", stderr="")
         return Mock(ran=False, returncode=1, stdout="", stderr="")
 
     monkeypatch.setattr("evidencetool.providers.tls.run_command", mock_run_command)
@@ -83,10 +83,10 @@ def test_tls_key_mismatch(monkeypatch):
     def mock_run_command(args, **kwargs):
         if "-checkend" in args:
             return Mock(ran=True, returncode=0, stdout="", stderr="")
-        if "x509" in args and "-modulus" in args:
-            return Mock(ran=True, returncode=0, stdout="Modulus=CERT_MODULUS\n", stderr="")
-        if "rsa" in args and "-modulus" in args:
-            return Mock(ran=True, returncode=0, stdout="Modulus=KEY_MODULUS\n", stderr="")
+        if "x509" in args and "-pubkey" in args:
+            return Mock(ran=True, returncode=0, stdout="CERT_PUBLIC_KEY\n", stderr="")
+        if "pkey" in args and "-pubout" in args:
+            return Mock(ran=True, returncode=0, stdout="KEY_PUBLIC_KEY\n", stderr="")
         return Mock(ran=False, returncode=1, stdout="", stderr="")
 
     monkeypatch.setattr("evidencetool.providers.tls.run_command", mock_run_command)
