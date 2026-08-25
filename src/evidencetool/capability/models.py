@@ -49,8 +49,32 @@ class NetworkCapability:
 
 
 @dataclass(frozen=True)
+class KubernetesCapability:
+    enabled: bool = True
+    operations: frozenset[str] = frozenset(
+        {"k8s_get_pod", "k8s_get_events", "k8s_get_node", "k8s_get_pvc", "k8s_get_service"}
+    )
+    allowed_namespaces: tuple[str, ...] = ("*",)
+    denied_namespaces: frozenset[str] = frozenset({"kube-system", "kube-public", "kube-node-lease"})
+    timeout_seconds: float = 5.0
+
+    def allows_operation(self, operation: str) -> bool:
+        return self.enabled and operation in self.operations
+
+    def allows_namespace(self, namespace: str) -> bool:
+        if not self.enabled:
+            return False
+        if namespace in self.denied_namespaces:
+            return False
+        if "*" in self.allowed_namespaces:
+            return True
+        return namespace in self.allowed_namespaces
+
+
+@dataclass(frozen=True)
 class CapabilitySet:
     network: NetworkCapability = field(default_factory=NetworkCapability)
+    kubernetes: KubernetesCapability = field(default_factory=KubernetesCapability)
     allowed_providers: frozenset[str] | None = None
     require_trusted_providers: bool = False
 
@@ -63,6 +87,12 @@ class CapabilitySet:
             raise CapabilityDenied(f"Network target '{target}' is not authorized.")
         if port is not None and not self.network.allows_port(port):
             raise CapabilityDenied(f"Network port '{port}' is not authorized.")
+
+    def require_kubernetes(self, operation: str, namespace: str) -> None:
+        if not self.kubernetes.allows_operation(operation):
+            raise CapabilityDenied(f"Kubernetes operation '{operation}' is not enabled.")
+        if not self.kubernetes.allows_namespace(namespace):
+            raise CapabilityDenied(f"Kubernetes namespace '{namespace}' is not authorized.")
 
     def allows_provider(self, namespace: str) -> bool:
         return self.allowed_providers is None or namespace in self.allowed_providers

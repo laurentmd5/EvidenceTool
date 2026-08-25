@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
+from typing import Any
 
 import yaml
 
-from evidencetool.capability.models import CapabilitySet, NetworkCapability
+from evidencetool.capability.models import CapabilitySet, KubernetesCapability, NetworkCapability
 
 
 def _parse_ports(value: object) -> frozenset[int] | None:
@@ -61,6 +62,35 @@ def _parse_network(raw: object) -> NetworkCapability:
     )
 
 
+def _parse_kubernetes(raw: Any) -> KubernetesCapability:
+    if raw is None:
+        return KubernetesCapability()
+    if not isinstance(raw, dict):
+        raise ValueError("Invalid capability policy: 'kubernetes' must be a mapping.")
+    operations = raw.get(
+        "operations",
+        ["k8s_get_pod", "k8s_get_events", "k8s_get_node", "k8s_get_pvc", "k8s_get_service"],
+    )
+    allowed_ns = raw.get("allowed_namespaces", ["*"])
+    denied_ns = raw.get("denied_namespaces", ["kube-system", "kube-public", "kube-node-lease"])
+    if not isinstance(operations, list) or not all(isinstance(item, str) for item in operations):
+        raise ValueError("Invalid capability policy: kubernetes.operations must be a list of strings.")
+    if not isinstance(allowed_ns, list) or not all(isinstance(item, str) for item in allowed_ns):
+        raise ValueError("Invalid capability policy: kubernetes.allowed_namespaces must be a list of strings.")
+    if not isinstance(denied_ns, list) or not all(isinstance(item, str) for item in denied_ns):
+        raise ValueError("Invalid capability policy: kubernetes.denied_namespaces must be a list of strings.")
+    timeout_seconds = raw.get("timeout_seconds", 5.0)
+    if isinstance(timeout_seconds, bool) or not isinstance(timeout_seconds, (int, float)) or timeout_seconds <= 0:
+        raise ValueError("Invalid capability policy: kubernetes.timeout_seconds must be a positive number.")
+    return KubernetesCapability(
+        enabled=bool(raw.get("enabled", True)),
+        operations=frozenset(operations),
+        allowed_namespaces=tuple(allowed_ns),
+        denied_namespaces=frozenset(denied_ns),
+        timeout_seconds=float(timeout_seconds),
+    )
+
+
 def load_capability_policy(path: str | Path) -> CapabilitySet:
     content = Path(path).read_text(encoding="utf-8")
     raw = yaml.safe_load(content)
@@ -72,6 +102,7 @@ def load_capability_policy(path: str | Path) -> CapabilitySet:
         raise ValueError("Invalid capability policy: 'capabilities' must be a mapping.")
 
     network = _parse_network(capabilities.get("network", {}))
+    kubernetes = _parse_kubernetes(capabilities.get("kubernetes", {}))
     providers_raw = capabilities.get("providers", {})
     allowed_providers_raw = providers_raw.get("allowed") if isinstance(providers_raw, dict) else None
     require_trusted = providers_raw.get("require_trusted", False) if isinstance(providers_raw, dict) else False
@@ -85,6 +116,7 @@ def load_capability_policy(path: str | Path) -> CapabilitySet:
 
     return CapabilitySet(
         network=network,
-        allowed_providers=(frozenset(allowed_providers_raw) if allowed_providers_raw is not None else None),
+        kubernetes=kubernetes,
+        allowed_providers=frozenset(allowed_providers_raw) if allowed_providers_raw is not None else None,
         require_trusted_providers=require_trusted,
     )

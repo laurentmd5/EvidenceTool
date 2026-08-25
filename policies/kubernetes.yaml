@@ -1,0 +1,25 @@
+version: "1.0"
+action: restart_deployment
+risk: HIGH
+schema: "v2"
+
+allow:
+  - K8S_POD_HEALTHY
+
+blocked_by:
+  - K8S_CRASH_LOOP_BACKOFF
+  - K8S_OOM_KILLED
+  - K8S_IMAGE_PULL_FAILURE
+  - K8S_CONFIG_OR_SECRET_MISSING
+  - K8S_INSUFFICIENT_CLUSTER_RESOURCES
+  - K8S_NODE_NOT_READY_OR_PRESSURE
+
+required_evidence:
+  - id: k8s.pod_phase
+    on_unknown: BLOCK
+  - id: k8s.containers_ready
+    on_unknown: BLOCK
+  - id: k8s.pod_scheduled
+    on_unknown: BLOCK
+
+human_approval: false
