@@ -9,6 +9,23 @@ situations:
     signature:
       network.host_reachable: FAIL
 
+  NETWORK_DNS_FAILURE:
+    description: "DNS resolution failed"
+    signature:
+      network.dns_resolvable: FAIL
+
+  NETWORK_TCP_REFUSED:
+    description: "TCP port is closed or connection refused"
+    signature:
+      network.port_reachable: FAIL
+
+  NETWORK_HEALTHY:
+    description: "Network connectivity is healthy"
+    signature:
+      network.dns_resolvable: PASS
+      network.host_reachable: PASS
+      network.port_reachable: PASS
+
   PROCESS_CRASHED:
     description: "Process is not running or in zombie state"
     signature:

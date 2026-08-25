@@ -1,0 +1,31 @@
+version: "1.0"
+action: restart_service
+risk: LOW
+schema: "v2"
+
+allow:
+  - NETWORK_HEALTHY
+
+blocked_by:
+  - NETWORK_DNS_FAILURE
+  - NETWORK_ROUTE_FAILURE
+  - NETWORK_HOST_UNREACHABLE
+  - NETWORK_TCP_REFUSED
+  - NETWORK_TLS_HANDSHAKE_FAILURE
+  - NETWORK_HTTP_5XX
+
+required_evidence:
+  - id: network.dns_resolvable
+    on_unknown: BLOCK
+  - id: network.route_exists
+    on_unknown: IGNORE
+  - id: network.host_reachable
+    on_unknown: BLOCK
+  - id: network.port_reachable
+    on_unknown: BLOCK
+  - id: network.tls_handshake
+    on_unknown: IGNORE
+  - id: network.http_reachable
+    on_unknown: IGNORE
+
+human_approval: false

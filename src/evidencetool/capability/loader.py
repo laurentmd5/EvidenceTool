@@ -23,7 +23,9 @@ def _parse_ports(value: object) -> frozenset[int] | None:
 def _parse_network(raw: object) -> NetworkCapability:
     if not isinstance(raw, dict):
         raise ValueError("Invalid capability policy: 'network' must be a mapping.")
-    operations = raw.get("operations", ["dns_lookup", "tcp_connect", "icmp_echo"])
+    operations = raw.get(
+        "operations", ["dns_lookup", "route_check", "icmp_echo", "tcp_connect", "tls_handshake", "http_probe"]
+    )
     targets = raw.get("targets", ["*"])
     if not isinstance(operations, list) or not all(isinstance(item, str) for item in operations):
         raise ValueError("Invalid capability policy: network.operations must be a list of strings.")

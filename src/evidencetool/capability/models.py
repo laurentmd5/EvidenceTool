@@ -13,7 +13,9 @@ class CapabilityDenied(PermissionError):
 @dataclass(frozen=True)
 class NetworkCapability:
     enabled: bool = True
-    operations: frozenset[str] = frozenset({"dns_lookup", "tcp_connect", "icmp_echo"})
+    operations: frozenset[str] = frozenset(
+        {"dns_lookup", "route_check", "icmp_echo", "tcp_connect", "tls_handshake", "http_probe"}
+    )
     targets: tuple[str, ...] = ("*",)
     ports: frozenset[int] | None = None
     max_probes: int | None = None

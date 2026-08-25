@@ -117,7 +117,6 @@ echo ">>> [4/6] FILESYSTEM PROVIDER E2E <<<"
 
 echo "Scenario 4.1: Disk Space Available (Normal)"
 OUT=$($BASE_DIAGNOSE nginx --catalog /opt/EvidenceTool/catalogs/nginx.yaml -a config_path=/etc/nginx/nginx.conf -a certificate_path=/etc/nginx/ssl/nginx.crt -a private_key_path=/etc/nginx/ssl/nginx.key -a service=nginx -a path=/ -a min_free_bytes=1048576 --output json) || true
-# Check that filesystem evidence is PASS
 FS_STATUS=$($PYTHON -c "import sys, json; d=json.loads(sys.argv[1]); print(next(e['status'] for e in d.get('evidence',[]) if e['id']=='filesystem.disk_space_available'))" "$OUT")
 if [ "$FS_STATUS" != "PASS" ]; then
     echo "FAIL: Expected filesystem.disk_space_available=PASS, got $FS_STATUS"
@@ -130,78 +129,64 @@ OUT=$($BASE_DIAGNOSE nginx --catalog /opt/EvidenceTool/catalogs/nginx.yaml -a co
 check_result "$OUT" "BLOCK" "DISK_FULL"
 
 # =========================================================================
-# 5. NETWORK PROVIDER E2E
+# 5. NETWORK PROVIDER E2E (Full Chain: DNS -> Route -> Ping -> TCP -> TLS -> HTTP)
 # =========================================================================
 echo ">>> [5/6] NETWORK PROVIDER E2E <<<"
 
-echo "Scenario 5.1: Real Port Reachable (Nginx HTTPS port 443)"
-OUT=$($BASE_DIAGNOSE nginx --catalog /opt/EvidenceTool/catalogs/system.yaml --policy /opt/EvidenceTool/policies/nginx.yaml -a target_host=127.0.0.1 -a port=443 --output json) || true
+echo "Scenario 5.1: Real Port & Full HTTPS Chain Reachable (Nginx HTTPS port 443)"
+OUT=$($BASE_DIAGNOSE nginx --catalog /opt/EvidenceTool/catalogs/network.yaml --policy /opt/EvidenceTool/policies/network.yaml -a target_host=127.0.0.1 -a port=443 -a use_tls=true --output json) || true
 PORT_STATUS=$($PYTHON -c "import sys, json; d=json.loads(sys.argv[1]); print(next(e['status'] for e in d.get('evidence',[]) if e['id']=='network.port_reachable'))" "$OUT")
-if [ "$PORT_STATUS" != "PASS" ]; then
-    echo "FAIL: Expected network.port_reachable=PASS on active port 443, got $PORT_STATUS"
-    exit 1
-fi
-echo "  -> PASS: network.port_reachable=PASS (port 443)"
+TLS_STATUS=$($PYTHON -c "import sys, json; d=json.loads(sys.argv[1]); print(next(e['status'] for e in d.get('evidence',[]) if e['id']=='network.tls_handshake'))" "$OUT")
+HTTP_STATUS=$($PYTHON -c "import sys, json; d=json.loads(sys.argv[1]); print(next(e['status'] for e in d.get('evidence',[]) if e['id']=='network.http_reachable'))" "$OUT")
 
-echo "Scenario 5.2: Closed Port Unreachable (port 59999)"
-OUT=$($BASE_DIAGNOSE nginx --catalog /opt/EvidenceTool/catalogs/system.yaml --policy /opt/EvidenceTool/policies/nginx.yaml -a target_host=127.0.0.1 -a port=59999 --output json) || true
-PORT_CLOSED_STATUS=$($PYTHON -c "import sys, json; d=json.loads(sys.argv[1]); print(next(e['status'] for e in d.get('evidence',[]) if e['id']=='network.port_reachable'))" "$OUT")
-if [ "$PORT_CLOSED_STATUS" != "FAIL" ]; then
-    echo "FAIL: Expected network.port_reachable=FAIL on closed port 59999, got $PORT_CLOSED_STATUS"
+if [ "$PORT_STATUS" != "PASS" ] || [ "$TLS_STATUS" != "PASS" ] || [ "$HTTP_STATUS" != "PASS" ]; then
+    echo "FAIL: Expected port=PASS, tls=PASS, http=PASS. Got port=$PORT_STATUS, tls=$TLS_STATUS, http=$HTTP_STATUS"
     exit 1
 fi
-echo "  -> PASS: network.port_reachable=FAIL (port 59999 closed)"
+echo "  -> PASS: Full Network HTTPS Chain (DNS, Route, Host, Port 443, TLS Handshake, HTTP 200)"
 
-echo "Scenario 5.3: Unroutable / Dead Host (NETWORK_UNREACHABLE)"
-OUT=$($BASE_DIAGNOSE nginx --catalog /opt/EvidenceTool/catalogs/system.yaml --policy /opt/EvidenceTool/policies/nginx.yaml -a target_host=192.0.2.1 -a port=80 --output json) || true
-HOST_STATUS=$($PYTHON -c "import sys, json; d=json.loads(sys.argv[1]); print(next(e['status'] for e in d.get('evidence',[]) if e['id']=='network.host_reachable'))" "$OUT")
-if [ "$HOST_STATUS" != "FAIL" ]; then
-    echo "FAIL: Expected network.host_reachable=FAIL on unreachable IP 192.0.2.1, got $HOST_STATUS"
-    exit 1
-fi
-echo "  -> PASS: network.host_reachable=FAIL (192.0.2.1 unreachable)"
+echo "Scenario 5.2: Closed Port Unreachable (port 59999 -> NETWORK_TCP_REFUSED)"
+OUT=$($BASE_DIAGNOSE nginx --catalog /opt/EvidenceTool/catalogs/network.yaml --policy /opt/EvidenceTool/policies/network.yaml -a target_host=127.0.0.1 -a port=59999 --output json) || true
+check_result "$OUT" "BLOCK" "NETWORK_TCP_REFUSED"
+
+echo "Scenario 5.3: Unroutable / Dead Host (NETWORK_HOST_UNREACHABLE)"
+OUT=$($BASE_DIAGNOSE nginx --catalog /opt/EvidenceTool/catalogs/network.yaml --policy /opt/EvidenceTool/policies/network.yaml -a target_host=192.0.2.1 -a port=80 --output json) || true
+check_result "$OUT" "BLOCK" "NETWORK_HOST_UNREACHABLE"
 
 # =========================================================================
-# 6. PROCESS PROVIDER E2E
+# 6. PROCESS PROVIDER E2E (Lifecycle, Scheduler State, Resources)
 # =========================================================================
 echo ">>> [6/6] PROCESS PROVIDER E2E <<<"
 
-echo "Scenario 6.1: Active Running Process (nginx master/worker)"
-OUT=$($BASE_DIAGNOSE nginx --catalog /opt/EvidenceTool/catalogs/system.yaml --policy /opt/EvidenceTool/policies/nginx.yaml -a process=nginx --output json) || true
+echo "Scenario 6.1: Active Running Process & Resources (nginx master/worker)"
+OUT=$($BASE_DIAGNOSE nginx --catalog /opt/EvidenceTool/catalogs/process.yaml --policy /opt/EvidenceTool/policies/process.yaml -a process=nginx --output json) || true
 PROC_STATUS=$($PYTHON -c "import sys, json; d=json.loads(sys.argv[1]); print(next(e['status'] for e in d.get('evidence',[]) if e['id']=='process.running'))" "$OUT")
-PIDS=$($PYTHON -c "import sys, json; d=json.loads(sys.argv[1]); print(next(e['observation']['value']['pids'] for e in d.get('evidence',[]) if e['id']=='process.running'))" "$OUT")
-if [ "$PROC_STATUS" != "PASS" ]; then
-    echo "FAIL: Expected process.running=PASS for nginx, got $PROC_STATUS"
-    exit 1
-fi
-echo "  -> PASS: process.running=PASS (PIDs: $PIDS)"
+STATE_STATUS=$($PYTHON -c "import sys, json; d=json.loads(sys.argv[1]); print(next(e['status'] for e in d.get('evidence',[]) if e['id']=='process.state'))" "$OUT")
+FD_STATUS=$($PYTHON -c "import sys, json; d=json.loads(sys.argv[1]); print(next(e['status'] for e in d.get('evidence',[]) if e['id']=='process.open_files'))" "$OUT")
 
-echo "Scenario 6.2: Non-Existent Process (fake_daemon_process)"
-OUT=$($BASE_DIAGNOSE nginx --catalog /opt/EvidenceTool/catalogs/system.yaml --policy /opt/EvidenceTool/policies/nginx.yaml -a process=fake_daemon_process --output json) || true
-PROC_MISSING_STATUS=$($PYTHON -c "import sys, json; d=json.loads(sys.argv[1]); print(next(e['status'] for e in d.get('evidence',[]) if e['id']=='process.running'))" "$OUT")
-if [ "$PROC_MISSING_STATUS" != "FAIL" ]; then
-    echo "FAIL: Expected process.running=FAIL for fake_daemon_process, got $PROC_MISSING_STATUS"
+if [ "$PROC_STATUS" != "PASS" ] || [ "$STATE_STATUS" != "PASS" ] || [ "$FD_STATUS" != "PASS" ]; then
+    echo "FAIL: Expected running=PASS, state=PASS, fds=PASS for nginx"
     exit 1
 fi
-echo "  -> PASS: process.running=FAIL (process absent)"
+echo "  -> PASS: process.running=PASS, process.state=PASS, process.open_files=PASS"
+
+echo "Scenario 6.2: Non-Existent Process (fake_daemon_process -> PROCESS_NOT_FOUND)"
+OUT=$($BASE_DIAGNOSE nginx --catalog /opt/EvidenceTool/catalogs/process.yaml --policy /opt/EvidenceTool/policies/process.yaml -a process=fake_daemon_process --output json) || true
+check_result "$OUT" "ALLOW" "PROCESS_NOT_FOUND"
 
 echo "Scenario 6.3: Real Zombie Process Detection in Linux Process Table"
-# Spawn a real zombie process: parent forks child that exits, while parent sleeps 10s without wait()
 $PYTHON -c "
 import os, time, sys
 pid = os.fork()
 if pid == 0:
-    # Child exits immediately to become a zombie
     sys.exit(0)
 else:
-    # Parent sleeps, keeping child in zombie state in OS process table
     time.sleep(8)
 " &
 ZOMBIE_PARENT_PID=$!
 sleep 1
 
-# Check if process provider detects the zombie state
-OUT=$($BASE_DIAGNOSE nginx --catalog /opt/EvidenceTool/catalogs/system.yaml --policy /opt/EvidenceTool/policies/nginx.yaml -a process=python3 --output json) || true
+OUT=$($BASE_DIAGNOSE nginx --catalog /opt/EvidenceTool/catalogs/process.yaml --policy /opt/EvidenceTool/policies/process.yaml -a process=python3 --output json) || true
 ZOMBIE_STATUS=$($PYTHON -c "import sys, json; d=json.loads(sys.argv[1]); print(next(e['status'] for e in d.get('evidence',[]) if e['id']=='process.zombie'))" "$OUT")
 
 kill -9 $ZOMBIE_PARENT_PID 2>/dev/null || true
@@ -211,6 +196,6 @@ if [ "$ZOMBIE_STATUS" != "FAIL" ]; then
     echo "FAIL: Expected process.zombie=FAIL when zombie process exists, got $ZOMBIE_STATUS"
     exit 1
 fi
-echo "  -> PASS: process.zombie=FAIL (real OS zombie successfully caught)"
+echo "  -> PASS: process.zombie=FAIL (real OS zombie caught)"
 
 echo "=== All Operational E2E Tests for All Providers Passed Successfully! ==="
