@@ -44,7 +44,18 @@ class ProviderTrust(str, Enum):
 
 
 BUILTIN_NAMESPACES = frozenset({
-    "container", "docker", "filesystem", "network", "nginx", "process", "systemd", "tls"
+    "container",
+    "dependency",
+    "docker",
+    "filesystem",
+    "mysql",
+    "network",
+    "nginx",
+    "postgres",
+    "process",
+    "redis",
+    "systemd",
+    "tls",
 })
 
 
@@ -101,7 +112,17 @@ def load_all_providers(include_experimental: bool = True) -> None:
     import evidencetool.providers
 
     builtin_modules = {
-        "docker", "filesystem", "network", "nginx", "process", "systemd", "tls"
+        "dependency",
+        "docker",
+        "filesystem",
+        "mysql",
+        "network",
+        "nginx",
+        "postgres",
+        "process",
+        "redis",
+        "systemd",
+        "tls",
     }
     package = evidencetool.providers
     for _, module_name, is_pkg in pkgutil.iter_modules(package.__path__):

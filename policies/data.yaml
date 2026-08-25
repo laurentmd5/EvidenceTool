@@ -1,0 +1,36 @@
+version: "1.0"
+action: restart_application
+risk: HIGH
+schema: "v2"
+
+allow:
+  - POSTGRES_HEALTHY
+  - MYSQL_HEALTHY
+  - REDIS_HEALTHY
+
+blocked_by:
+  - POSTGRES_POOL_EXHAUSTED
+  - POSTGRES_READ_ONLY_REPLICA
+  - POSTGRES_UNREACHABLE
+  - MYSQL_TOO_MANY_CONNECTIONS
+  - REDIS_OOM_MAXMEMORY
+  - REDIS_AUTH_FAILURE
+  - REDIS_UNREACHABLE
+  - UPSTREAM_DEPENDENCY_DOWN
+  - UPSTREAM_LATENCY_DEGRADATION
+
+required_evidence:
+  - id: postgres.reachable
+    on_unknown: IGNORE
+  - id: postgres.accepting_connections
+    on_unknown: IGNORE
+  - id: postgres.pool_exhaustion
+    on_unknown: IGNORE
+  - id: mysql.reachable
+    on_unknown: IGNORE
+  - id: redis.reachable
+    on_unknown: IGNORE
+  - id: dependency.http_status
+    on_unknown: IGNORE
+
+human_approval: false

@@ -24,7 +24,19 @@ def _parse_network(raw: object) -> NetworkCapability:
     if not isinstance(raw, dict):
         raise ValueError("Invalid capability policy: 'network' must be a mapping.")
     operations = raw.get(
-        "operations", ["dns_lookup", "route_check", "icmp_echo", "tcp_connect", "tls_handshake", "http_probe"]
+        "operations",
+        [
+            "dns_lookup",
+            "route_check",
+            "icmp_echo",
+            "tcp_connect",
+            "tls_handshake",
+            "http_probe",
+            "redis_ping",
+            "redis_info",
+            "db_ping",
+            "db_pool_check",
+        ],
     )
     targets = raw.get("targets", ["*"])
     if not isinstance(operations, list) or not all(isinstance(item, str) for item in operations):

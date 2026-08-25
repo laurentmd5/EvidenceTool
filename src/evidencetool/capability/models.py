@@ -14,7 +14,18 @@ class CapabilityDenied(PermissionError):
 class NetworkCapability:
     enabled: bool = True
     operations: frozenset[str] = frozenset(
-        {"dns_lookup", "route_check", "icmp_echo", "tcp_connect", "tls_handshake", "http_probe"}
+        {
+            "dns_lookup",
+            "route_check",
+            "icmp_echo",
+            "tcp_connect",
+            "tls_handshake",
+            "http_probe",
+            "redis_ping",
+            "redis_info",
+            "db_ping",
+            "db_pool_check",
+        }
     )
     targets: tuple[str, ...] = ("*",)
     ports: frozenset[int] | None = None

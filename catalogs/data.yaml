@@ -1,0 +1,78 @@
+situations:
+  POSTGRES_HEALTHY:
+    description: "PostgreSQL instance is reachable, accepting connections with nominal connection pool"
+    signature:
+      postgres.reachable: PASS
+      postgres.accepting_connections: PASS
+      postgres.pool_exhaustion: PASS
+
+  POSTGRES_UNREACHABLE:
+    description: "PostgreSQL service is stopped or port is unreachable"
+    signature:
+      postgres.reachable: FAIL
+
+  POSTGRES_POOL_EXHAUSTED:
+    description: "PostgreSQL is rejecting connections due to connection pool saturation (too many clients)"
+    signature:
+      postgres.reachable: PASS
+      postgres.pool_exhaustion: FAIL
+
+  POSTGRES_READ_ONLY_REPLICA:
+    description: "PostgreSQL node is in read-only / standby recovery mode when primary was expected"
+    signature:
+      postgres.reachable: PASS
+      postgres.is_in_recovery: FAIL
+
+  MYSQL_HEALTHY:
+    description: "MySQL instance is operational with available connections"
+    signature:
+      mysql.reachable: PASS
+      mysql.ping: PASS
+      mysql.max_connections: PASS
+
+  MYSQL_TOO_MANY_CONNECTIONS:
+    description: "MySQL max connection limit exceeded (Error 1040: Too many connections)"
+    signature:
+      mysql.reachable: PASS
+      mysql.max_connections: FAIL
+
+  REDIS_HEALTHY:
+    description: "Redis responds to PING with nominal memory usage and active replication"
+    signature:
+      redis.reachable: PASS
+      redis.ping: PASS
+      redis.memory_pressure: PASS
+
+  REDIS_UNREACHABLE:
+    description: "Redis server is unreachable or port is closed"
+    signature:
+      redis.reachable: FAIL
+
+  REDIS_AUTH_FAILURE:
+    description: "Redis rejected authentication due to missing or invalid credentials"
+    signature:
+      redis.reachable: PASS
+      redis.auth: FAIL
+
+  REDIS_OOM_MAXMEMORY:
+    description: "Redis maxmemory ceiling reached and writes are rejected"
+    signature:
+      redis.reachable: PASS
+      redis.memory_pressure: FAIL
+
+  REDIS_REPLICATION_BROKEN:
+    description: "Redis replica lost synchronization link with master"
+    signature:
+      redis.reachable: PASS
+      redis.role: FAIL
+
+  UPSTREAM_DEPENDENCY_DOWN:
+    description: "Upstream API dependency returned 5xx server error or connection failure"
+    signature:
+      dependency.http_status: FAIL
+
+  UPSTREAM_LATENCY_DEGRADATION:
+    description: "Upstream API is reachable but response latency violates configured SLA budget"
+    signature:
+      dependency.http_status: PASS
+      dependency.sla_budget: FAIL
