@@ -1,4 +1,4 @@
-# EvidenceTool (V0.6 — Dependency-Aware Operational Evidence Engine)
+# EvidenceTool (V0.8 — Distributed Diagnosis & Multi-Domain Operational Evidence Engine)
 
 > EvidenceTool does not automate actions first. It makes operational decisions explainable first.
 
@@ -22,12 +22,14 @@ EvidenceTool is tested and verified on the following environments:
 - **Ubuntu 22.04 LTS** (systemd + Nginx)
 - **Debian 12** (systemd + Nginx)
 - **Docker Environments** (container inspection, crash loops, health status)
+- **Kubernetes Clusters** (Pods, ContainerStatuses, OOMKilled, CrashLoopBackOff, ImagePull, Scheduling, Nodes)
 - **Database & Middleware** (PostgreSQL 14-17, MySQL 8 / MariaDB, Redis 6-7 RESP)
+- **Distributed Microservice Dependencies** (HTTP API latency SLA budgets, circuit breakers)
 - Any POSIX systemd-based Linux distribution with standard coreutils
 
 ---
 
-## Built-in Diagnostic Providers
+## Built-in Diagnostic Providers (12 Native Domains)
 
 | Provider | Namespace | Checks / Observations | Scope |
 | :--- | :--- | :--- | :--- |
@@ -42,6 +44,7 @@ EvidenceTool is tested and verified on the following environments:
 | **MySQL** | `mysql` | `mysql.reachable`, `mysql.ping`, `mysql.max_connections`, `mysql.read_only`, `mysql.latency_ms` | Initial handshake packet parsing, Error 1040 max connections, read-only status |
 | **Redis** | `redis` | `redis.reachable`, `redis.ping`, `redis.auth`, `redis.memory_pressure`, `redis.role`, `redis.latency_ms` | Native RESP wire protocol, PING/PONG, memory saturation (OOM), replication link |
 | **Dependency** | `dependency` | `dependency.http_status`, `dependency.latency_ms`, `dependency.sla_budget`, `dependency.circuit_breaker` | Upstream API SLA latency budget, HTTP 503/429/504 circuit breaking |
+| **Kubernetes** | `k8s` / `kubernetes` | `k8s.pod_phase`, `k8s.containers_ready`, `k8s.container_crashloop`, `k8s.container_oom_killed`, `k8s.image_pull_status`, `k8s.config_secret_status`, `k8s.pod_scheduled`, `k8s.node_ready` | Read-only kubectl inspection with namespace confinement |
 
 ---
 
@@ -98,10 +101,25 @@ evidencetool diagnose docker \
   --catalog catalogs/docker.yaml \
   -a container=production_web_app
 
-# 4. Agentless Remote SSH Diagnosis
+# 4. Kubernetes Pod Diagnosis
+evidencetool diagnose k8s \
+  --policy policies/kubernetes.yaml \
+  --catalog catalogs/kubernetes.yaml \
+  -a pod=api-service-789 -a namespace=production
+
+# 5. Distributed Multi-Signal Diagnosis
+evidencetool diagnose dependency \
+  --policy policies/distributed.yaml \
+  --catalog catalogs/distributed.yaml \
+  -a url=http://127.0.0.1:8080/health \
+  -a redis_host=127.0.0.1 -a redis_port=6379 \
+  -a db_host=127.0.0.1 -a db_port=5432 \
+  -a port=5432
+
+# 6. Agentless Remote SSH Diagnosis
 evidencetool diagnose nginx --host prod-web-01
 
-# 5. Explicit policy & situation catalog with Prometheus metrics
+# 7. Explicit policy & situation catalog with Prometheus metrics
 evidencetool diagnose nginx \
   --policy policies/nginx.yaml \
   --catalog catalogs/nginx.yaml \
@@ -273,10 +291,8 @@ required_evidence:
 human_approval: false
 ```
 
-Decision precedence is fixed and non-configurable:
-`BLOCK > HUMAN_REVIEW > ALLOW`. A blocking evidence item or blocked situation always wins,
-regardless of risk level or `human_approval`.
+Decision precedence is fixed and non-configurable: `BLOCK > HUMAN_REVIEW > ALLOW`. A blocking evidence item or blocked situation always wins, regardless of risk level or `human_approval`.
 
 ## Known Limitations
 
-No execution / auto-remediation (by design), no Kubernetes yet, no LLM in the decision path, no web dashboard, no aggregate 0-100 scoring. See `PRODUCT_CONTRACT.md` Section 10 for the full list and rationale.
+No execution / auto-remediation (by design), no LLM in the deterministic decision path, no web dashboard, no aggregate 0-100 scoring. See `PRODUCT_CONTRACT.md` Section 10 for the full list and rationale.

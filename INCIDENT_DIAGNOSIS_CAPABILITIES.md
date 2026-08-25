@@ -1,127 +1,132 @@
-# Rapport d'Analyse — Typologie des Incidents de Production Diagnostiqués par EvidenceTool (v0.5.0)
+# Rapport d'Analyse — Typologie des Incidents de Production Diagnostiqués par EvidenceTool (v0.8.0)
 
 **Date** : 25 Août 2026  
-**Version** : `v0.5.0` (Branche `dev`)  
-**Périmètre** : 7 Providers Opérationnels (`docker`, `nginx`, `tls`, `systemd`, `filesystem`, `network`, `process`)
+**Version** : `v0.8.0` (Branche `dev`)  
+**Périmètre** : 12 Providers Opérationnels (`nginx`, `tls`, `systemd`, `docker`, `filesystem`, `network`, `process`, `postgres`, `mysql`, `redis`, `dependency`, `k8s`)  
+**Catalogues** : 8 Catalogues de Situations (`nginx`, `docker`, `network`, `process`, `data`, `kubernetes`, `distributed`, `system`)
 
 ---
 
 ## 1. Vue d'Ensemble & Positionnement
 
-EvidenceTool est un moteur de diagnostic factuel en lecture seule (*Read-Only Operational Evidence Engine*). Il ne prend pas d'initiative hasardeuse : **il collecte des preuves vérifiables, corrèle les états du système, identifie la cause racine parmi un catalogue de situations et décide si une action corrective est sûre (`ALLOW`), interdite (`BLOCK`), ou requiert un arbitrage (`HUMAN_REVIEW`)**.
+EvidenceTool est un moteur de diagnostic factuel en lecture seule (*Read-Only Operational Evidence Engine*). Il ne prend pas d'initiative hasardeuse : **il collecte des preuves vérifiables sans effet de bord, corrèle les états du système, identifie la cause racine parmi un catalogue de situations et décide si une action corrective est sûre (`ALLOW`), interdite (`BLOCK`), ou requiert un arbitrage (`HUMAN_REVIEW`)**.
 
 ```
-                   ┌──────────────────────────────────────────────┐
-                   │           7 PROVIDERS D'OBSERVATION          │
-                   │  (docker, nginx, tls, systemd, fs, net, proc)│
-                   └──────────────────────┬───────────────────────┘
-                                          │
-                                          ▼
-                   ┌──────────────────────────────────────────────┐
-                   │    CORRÉLATION & SIGNATURES DE SITUATIONS    │
-                   │  (13 Situations formelles multi-domaines)    │
-                   └──────────────────────┬───────────────────────┘
-                                          │
-                                          ▼
-                   ┌──────────────────────────────────────────────┐
-                   │             DÉCISION OPÉRATIONNELLE          │
-                   │   BLOCK > HUMAN_REVIEW > ALLOW (+ Advisory)  │
-                   └──────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────┐
+│             INCIDENT DISTRIBUÉ MULTI-COUCHES           │
+└───────────────────────────┬────────────────────────────┘
+                            │
+       ┌────────────────────┼────────────────────┐
+       ▼                    ▼                    ▼
+[ COUCHE APPLICATIVE ] [ COUCHE DONNÉES ]  [ COUCHE RÉSEAU/TRANSPORT ]
+• API HTTP 500         • Postgres unreachable • TCP/5432 Refused/Timeout
+• Latency SLA Violated • Pool Exhausted       • DNS / Host ping PASS
+• Process/Container OK • Redis PONG (Sain)   • Route OK
+• K8s Pod / Node State • MySQL Max Connections• TLS Handshake
+       │                    │                    │
+       └────────────────────┼────────────────────┘
+                            │
+                            ▼
+              [ FAITS OBSERVABLES COLLECTÉS ]
+            (12 Providers, Zero Mutation Guarantee)
+                            │
+                            ▼
+           [ CATALOGUES DE SITUATIONS V0.8 ]
+          (45+ Situations Formelles Corrélées)
+                            │
+                            ▼
+              [ DÉCISION & EXPLICABILITÉ ]
+               BLOCK > HUMAN_REVIEW > ALLOW
 ```
 
 ---
 
 ## 2. Typologie des Incidents Diagnostiqués par Domaine
 
-### A. Incidents Web & Reverse Proxy (Nginx)
+### A. Incidents Web & Reverse Proxy (`nginx`, `systemd`)
 
 | Incident de Production | Symptôme Observé | Preuves & Détection Technique | Décision & Règle de Sécurité |
 | :--- | :--- | :--- | :---: |
-| **Erreur de Syntaxe de Configuration** | Nginx refuse de démarrer après modification de `nginx.conf` ou d'un vhost. | Probe `nginx.config_valid` via `nginx -t -c <path>`. Analyse le code retour et filtre les faux positifs (droits de logs). | 🛑 **BLOCK** (`NGINX_CONFIG_INVALID`)<br>Empêche tout redémarrage en boucle. |
-| **Service Inactif / Tombé Sans Panne de Config** | Le service Nginx est arrêté alors que tout le système est nominal. | `systemd.service_active: FAIL` + `nginx.config_valid: PASS` + `tls.*: PASS` + `fs.disk: PASS`. | 🟢 **ALLOW** (`NGINX_SERVICE_DOWN`)<br>Redémarrage autorisé (`restart_nginx`). |
-| **Service Non Installé / Manquant** | Demande de redémarrage d'un service inexistant ou désinstallé. | `systemd.service_exists: FAIL` via `systemctl show -p LoadState`. | 🛑 **BLOCK** (`NGINX_SERVICE_NOT_INSTALLED`) |
+| **Erreur de Syntaxe de Configuration** | Nginx refuse de démarrer après modification de `nginx.conf`. | Probe `nginx.config_valid` via `nginx -t -c <path>`. Filtre les faux positifs de droits de logs. | 🛑 **BLOCK** (`NGINX_CONFIG_INVALID`) |
+| **Service Inactif Sans Panne** | Le service Nginx est arrêté alors que tout le système est nominal. | `systemd.service_active: FAIL` + `nginx.config_valid: PASS` + `tls.*: PASS`. | 🟢 **ALLOW** (`NGINX_SERVICE_DOWN`)<br>Redémarrage autorisé (`restart_nginx`). |
+| **Service Non Installé / Manquant** | Demande de redémarrage d'un service inexistant. | `systemd.service_exists: FAIL` via `systemctl show -p LoadState`. | 🛑 **BLOCK** (`NGINX_SERVICE_NOT_INSTALLED`) |
 
 ---
 
-### B. Incidents Cryptographiques & Sécurité TLS / SSL
+### B. Incidents Cryptographiques & Certificats TLS (`tls`)
 
 | Incident de Production | Symptôme Observé | Preuves & Détection Technique | Décision & Règle de Sécurité |
 | :--- | :--- | :--- | :---: |
-| **Certificat Expiré** | Erreurs SSL/TLS côté clients (`SEC_ERROR_EXPIRED_CERTIFICATE`). | Probe `tls.certificate_valid` extrait les dates de validité (`not_valid_after_utc`) via `cryptography.x509` / `openssl`. | 🛑 **BLOCK** (`TLS_CERTIFICATE_EXPIRED`)<br>Un restart ne réparera pas un cert expiré. |
-| **Désynchronisation Clé Privée / Certificat (Mismatch)** | Nginx échoue au boot : `SSL_CTX_use_PrivateKey_file failed: key values mismatch`. | Probe `tls.key_matches_certificate` extrait les clés publiques universelles (`openssl x509 -pubkey` vs `openssl pkey -pubout`) compatibles RSA, ECDSA, Ed25519. | 🛑 **BLOCK** (`TLS_KEY_MISMATCH`) |
-| **Fichier Certificat ou Clé Manquant** | Déploiement incomplet ou chemin erroné. | Probes `tls.certificate_exists` et `tls.private_key_exists`. | 🛑 **BLOCK** (`TLS_CERTIFICATE_MISSING`, `TLS_KEY_MISSING`) |
+| **Certificat Expiré** | Erreurs SSL côté clients (`SEC_ERROR_EXPIRED_CERTIFICATE`). | Probe `tls.certificate_valid` extrait les dates de validité via ASN.1 / OpenSSL. | 🛑 **BLOCK** (`TLS_CERTIFICATE_EXPIRED`) |
+| **Désynchronisation Clé / Certificat** | Nginx échoue : `key values mismatch`. | Probe `tls.key_matches_certificate` extrait les clés publiques universelles (RSA, ECDSA, Ed25519). | 🛑 **BLOCK** (`TLS_KEY_MISMATCH`) |
+| **Fichier Certificat ou Clé Manquant** | Déploiement incomplet ou chemin erroné. | Probes `tls.certificate_exists` et `tls.private_key_exists`. | 🛑 **BLOCK** (`TLS_CERTIFICATE_MISSING`) |
 
 ---
 
-### C. Incidents de Conteneurisation & Microservices (Docker)
+### C. Incidents Conteneurs & Orchestration Docker (`docker`)
 
 | Incident de Production | Symptôme Observé | Preuves & Détection Technique | Décision & Règle de Sécurité |
 | :--- | :--- | :--- | :---: |
-| **Boucle de Crash Infinie (CrashLoopBackOff)** | Conteneur configuré avec `--restart=always` qui crashe en continu. | Probe `container.restarting: FAIL` (`State.Restarting == true`). Extraction des logs d'erreur masqués. | 🟢 **ALLOW** (`CONTAINER_CRASH_LOOP`)<br>Autorise l'investigation et restart. |
-| **Échec de Healthcheck Applicatif** | L'application ne répond plus ou est en deadlock interne. | Probe `container.health: FAIL` (`State.Health.Status == 'unhealthy'`). | 🟢 **ALLOW** (`CONTAINER_UNHEALTHY`) |
-| **Arrêt / Crash Inattendu (Conteneur Éteint)** | Conteneur à l'arrêt (`Exited`). | Probe `container.exists: PASS` et `container.running: FAIL`. | 🟢 **ALLOW** (`CONTAINER_STOPPED`) |
-| **Conteneur Tué par OOM (Out Of Memory)** | Processus tué subitement par le noyau Linux par manque de RAM. | Probe `container.exit_code` inspecte `State.OOMKilled == true` et extrait la stack trace mémoire. | 🟢 **ALLOW** (avec avertissement OOM dans la recommandation) |
-| **Conteneur Inexistant ou Supprimé** | Ciblage d'un conteneur inexistant sur l'hôte Docker. | Probe `container.exists: FAIL`. | 🛑 **BLOCK** (`CONTAINER_NOT_FOUND`) |
-| **Action Injustifiée sur Conteneur Sain** | Tentative de redémarrer un conteneur qui tourne parfaitement. | `container.running: PASS` + `container.health: PASS` + `exit_code: 0`. | 🛑 **BLOCK** (Action non autorisée car inutile). |
+| **CrashLoopBackOff Conteneur** | Conteneur redémarre en boucle continue. | Probe `container.restarting: FAIL` (`State.Restarting == true`) avec logs masqués. | 🟢 **ALLOW** (`CONTAINER_CRASH_LOOP`) |
+| **Échec de Healthcheck Applicatif** | L'application est figée ou en deadlock interne. | Probe `container.health: FAIL` (`State.Health.Status == 'unhealthy'`). | 🟢 **ALLOW** (`CONTAINER_UNHEALTHY`) |
+| **Arrêt / Crash Inattendu** | Conteneur à l'arrêt (`Exited`). | Probe `container.exists: PASS` et `container.running: FAIL`. | 🟢 **ALLOW** (`CONTAINER_STOPPED`) |
+| **Conteneur Inexistant** | Demande sur un conteneur supprimé. | Probe `container.exists: FAIL`. | 🛑 **BLOCK** (`CONTAINER_NOT_FOUND`) |
 
 ---
 
-### D. Incidents Système, Processus & Filesystem
+### D. Incidents Orchestration Kubernetes (`k8s`)
 
 | Incident de Production | Symptôme Observé | Preuves & Détection Technique | Décision & Règle de Sécurité |
 | :--- | :--- | :--- | :---: |
-| **Saturation / Disque Plein** | Incapacité d'écrire des logs ou des bases de données. | Probe `filesystem.disk_space_available` et `filesystem.disk_pressure` via `statvfs` / `df -k`. | 🛑 **BLOCK** (`DISK_FULL`, `DISK_PRESSURE`)<br>Bloque l'action pour éviter corruption de données. |
-| **Processus Crashé / Absent** | Démon Linux arrêté en tâche de fond. | Probe `process.running: FAIL` via scan de la table des processus (`pgrep -f` / `ps`). | 🛑 **BLOCK** (`PROCESS_CRASHED`) ou déclenchement de remédiation. |
-| **Processus Zombies dans le Noyau** | Fuite de descripteurs / processus parents qui ne font pas de `wait()`. | Probe `process.zombie: FAIL` détecte l'état `Z` (defunct) dans `/proc`. | ⚠️ Alerte de dégradation système. |
+| **Pod CrashLoopBackOff** | Pod Kubernetes redémarre en boucle. | Probe `k8s.container_crashloop: FAIL` (`waiting.reason == 'CrashLoopBackOff'`). | 🛑 **BLOCK** (`K8S_CRASH_LOOP_BACKOFF`) |
+| **Pod Tué par OOM Killer (Code 137)** | Conteneur tué par dépassement de limite mémoire. | Probe `k8s.container_oom_killed: FAIL` (`exitCode == 137` / `reason == 'OOMKilled'`). | 🛑 **BLOCK** (`K8S_OOM_KILLED`)<br>Ajustement de `limits.memory` requis. |
+| **Échec de Pull d'Image (Registry)** | Pod bloqué `ImagePullBackOff` ou `ErrImagePull`. | Probe `k8s.image_pull_status: FAIL`. | 🛑 **BLOCK** (`K8S_IMAGE_PULL_FAILURE`) |
+| **ConfigMap ou Secret Manquant** | Erreur `CreateContainerConfigError`. | Probe `k8s.config_secret_status: FAIL`. | 🛑 **BLOCK** (`K8S_CONFIG_OR_SECRET_MISSING`) |
+| **Ressources Cluster Insuffisantes** | Pod bloqué en `Pending` / `Unschedulable`. | Probe `k8s.pod_scheduled: FAIL` (ex: `0/8 nodes available: Insufficient cpu`). | 🛑 **BLOCK** (`K8S_INSUFFICIENT_CLUSTER_RESOURCES`) |
+| **Nœud en Panne ou Sous Pression** | Nœud Kubernetes en `NotReady` ou `MemoryPressure`. | Probe `k8s.node_ready: FAIL`. | 🛑 **BLOCK** (`K8S_NODE_NOT_READY_OR_PRESSURE`) |
 
 ---
 
-### E. Incidents Réseau, Connectivité & Résolution DNS
+### E. Incidents Système, Processus Noyau Linux & Filesystem (`process`, `filesystem`)
 
 | Incident de Production | Symptôme Observé | Preuves & Détection Technique | Décision & Règle de Sécurité |
 | :--- | :--- | :--- | :---: |
-| **Panne de Connectivité Hôte / Réseau** | Machine cible injoignable ou coupure réseau. | Probe `network.host_reachable: FAIL` via ICMP ping et test d'adressabilité. | 🛑 **BLOCK** (`NETWORK_UNREACHABLE`) |
-| **Port TCP Fermé / Bloqué par Firewall** | Service distant non à l'écoute ou filtré par règles iptables/security group. | Probe `network.port_reachable: FAIL` via socket TCP syn/ack. | ⚠️ Détection précise du port en échec. |
-| **Panne de Résolution DNS** | Dépendance ou nom d'hôte non résolu. | Probe `network.dns_resolvable: FAIL` via `getaddrinfo` / `getent hosts`. | 🛑 **BLOCK** (Empêche les requêtes dans le vide). |
+| **Blocage I/O Noyau (État D)** | Processus figé en attente I/O disque non interruptible. | Probe `process.state: FAIL` détecte l'état noyau `D` (*uninterruptible sleep*). | 🛑 **BLOCK** (`PROCESS_IO_WAIT`) |
+| **Processus Zombie** | Processus orphelin défunt dans `/proc`. | Probe `process.zombie: FAIL` (état `Z`). | ⚠️ (`PROCESS_ZOMBIE`) |
+| **Saturation CPU / Pression Mémoire** | Processus consomme > 90% CPU ou RAM. | Probes `process.cpu_usage` et `process.memory_usage` avec seuils configurables. | 🛑 **BLOCK** (`PROCESS_CPU_SATURATION`, `PROCESS_MEMORY_PRESSURE`) |
+| **Épuisement des Descripteurs (FD)** | Erreur `Too many open files`. | Probe `process.open_files` compare `/proc/<pid>/fd` aux limites `/proc/<pid>/limits`. | 🛑 **BLOCK** (`PROCESS_FD_EXHAUSTION`) |
+| **Saturation / Disque Plein** | Incapacité d'écrire des logs ou des données. | Probes `filesystem.disk_space_available` et `filesystem.disk_pressure`. | 🛑 **BLOCK** (`DISK_FULL`, `DISK_PRESSURE`) |
 
 ---
 
-## 3. Matrice des 13 Situations Formelles Actuelles
+### F. Incidents Données, Middleware & Cache (`postgres`, `mysql`, `redis`)
 
-| ID Situation | Description Fonctionnelle | Signature Technique | Décision Métier par Défaut |
+| Incident de Production | Symptôme Observé | Preuves & Détection Technique | Décision & Règle de Sécurité |
 | :--- | :--- | :--- | :---: |
-| `NGINX_SERVICE_DOWN` | Nginx inactif mais sain (config, TLS, disque OK). | `systemd.service_active=FAIL`, all others=PASS | 🟢 **ALLOW** |
-| `NGINX_CONFIG_INVALID` | Erreur de syntaxe dans la configuration. | `nginx.config_valid=FAIL` | 🛑 **BLOCK** |
-| `NGINX_SERVICE_NOT_INSTALLED` | Service systemd absent de la machine. | `systemd.service_exists=FAIL` | 🛑 **BLOCK** |
-| `TLS_CERTIFICATE_MISSING` | Fichier de certificat introuvable. | `tls.certificate_exists=FAIL` | 🛑 **BLOCK** |
-| `TLS_CERTIFICATE_EXPIRED` | Certificat dont la date de fin de validité est dépassée. | `tls.certificate_valid=FAIL` | 🛑 **BLOCK** |
-| `TLS_KEY_MISSING` | Fichier de clé privée introuvable. | `tls.private_key_exists=FAIL` | 🛑 **BLOCK** |
-| `TLS_KEY_MISMATCH` | Clé privée ne correspondant pas à la clé publique du cert. | `tls.key_matches_certificate=FAIL` | 🛑 **BLOCK** |
-| `DISK_FULL` | Espace disque inférieur au seuil minimum. | `filesystem.disk_space_available=FAIL` | 🛑 **BLOCK** |
-| `DISK_PRESSURE` | Espace disque critique (>90% saturé). | `filesystem.disk_pressure=FAIL` | 🛑 **BLOCK** |
-| `NETWORK_UNREACHABLE` | Hôte réseau ou IP cible non joignable. | `network.host_reachable=FAIL` | 🛑 **BLOCK** |
-| `CONTAINER_STOPPED` | Conteneur Docker éteint. | `container.exists=PASS`, `container.running=FAIL` | 🟢 **ALLOW** |
-| `CONTAINER_CRASH_LOOP` | Conteneur en boucle infinie de redémarrage. | `container.restarting=FAIL` | 🟢 **ALLOW** |
-| `CONTAINER_UNHEALTHY` | Conteneur en cours d'exécution mais healthcheck KO. | `container.running=PASS`, `container.health=FAIL` | 🟢 **ALLOW** |
-| `CONTAINER_NOT_FOUND` | Conteneur non trouvé sur l'hôte Docker. | `container.exists=FAIL` | 🛑 **BLOCK** |
-| `PROCESS_CRASHED` | Processus cible introuvable dans la table OS. | `process.running=FAIL` | 🛑 **BLOCK** |
-| `PROCESS_HEALTHY` | Processus nominal sans processus zombies. | `process.running=PASS`, `process.zombie=PASS` | 🟢 **NOMINAL** |
+| **Saturation Pool PostgreSQL** | `FATAL: remaining connection slots are reserved` / `too many clients`. | Probe `postgres.pool_exhaustion: FAIL` via `pg_isready` ou sonde SSLRequest. | 🛑 **BLOCK** (`POSTGRES_POOL_EXHAUSTED`) |
+| **Split-Brain / Réplica Read-Only PostgreSQL** | Erreurs d'écriture applicatives sur la base. | Probe `postgres.is_in_recovery: FAIL` (nœud standby alors que primaire attendu). | 🛑 **BLOCK** (`POSTGRES_READ_ONLY_REPLICA`) |
+| **Saturation Connexions MySQL** | Erreur `1040 (HY000): Too many connections`. | Probe `mysql.max_connections: FAIL` via décodage du handshake packet. | 🛑 **BLOCK** (`MYSQL_TOO_MANY_CONNECTIONS`) |
+| **Saturation Mémoire Redis (OOM)** | Écritures rejetées (`OOM command not allowed`). | Probe `redis.memory_pressure: FAIL` via analyse RESP de `INFO memory` (`used_memory / maxmemory`). | 🛑 **BLOCK** (`REDIS_OOM_MAXMEMORY`) |
+| **Coupure Réplication Redis** | Replica désynchronisé du master. | Probe `redis.role: FAIL` (`master_link_status: down`). | 🛑 **BLOCK** (`REDIS_REPLICATION_BROKEN`) |
+| **Erreur d'Authentification Redis** | Erreur `NOAUTH` ou `WRONGPASS`. | Probe `redis.auth: FAIL`. | 🛑 **BLOCK** (`REDIS_AUTH_FAILURE`) |
 
 ---
 
-## 4. Modalités d'Exécution Supportées
+### G. Incidents Dépendances Microservices & Latence SLA (`dependency`)
 
-1. **Exécution Locale** : Diagnostic direct sur la machine hôte.
-2. **Exécution Distante Sans Agent (Agentless SSH)** : Diagnostic distant via SSH avec privilèges minimaux (POSIX ACLs, aucune élévation `sudo` requise).
-3. **Exécution Conteneurisée (Docker)** : Diagnostic via l'API/CLI Docker locale ou distante.
-4. **Exécution Confinée pour Agents IA (`CapabilitySet`)** : Contrôle strict des cibles IP/CIDR et ports que l'outil est autorisé à sonder lors de diagnostics automatisés.
+| Incident de Production | Symptôme Observé | Preuves & Détection Technique | Décision & Règle de Sécurité |
+| :--- | :--- | :--- | :---: |
+| **Dégradation Latence / Violation SLA** | Temps de réponse > SLA budget (ex: > 250ms). | Probe `dependency.sla_budget: FAIL` (`latency_ms > sla_budget_ms`). | 🛑 **BLOCK** (`UPSTREAM_LATENCY_DEGRADATION`) |
+| **Circuit Breaker / Throttling** | API amont renvoie HTTP 503, 429 ou 504. | Probe `dependency.circuit_breaker: FAIL`. | 🛑 **BLOCK** (`UPSTREAM_DEPENDENCY_DOWN`) |
 
 ---
 
-## 5. Synthèse
+### H. Incidents Distribués Multi-Signaux (`distributed`)
 
-À ce niveau, **EvidenceTool couvre l'ensemble des pannes d'infrastructure courantes** :
-- **Couche Web & Ingress** (Nginx, Certificats SSL/TLS).
-- **Couche Microservices & Conteneurs** (Docker lifecycle, healthchecks, OOM).
-- **Couche Système & OS** (Services Systemd, table des Processus, saturation Disque).
-- **Couche Réseau** (Reachability IP, Connectivité Ports TCP, Résolution DNS).
+| Incident de Production | Signatures Multi-Domaines Corrélées | Cause Racine Isolée | Décision Métier |
+| :--- | :--- | :--- | :---: |
+| **`DATABASE_CONNECTIVITY_FAILURE`** | API 500 (`dependency.http_status: FAIL`) + DB unreachable (`postgres.reachable: FAIL`) + TCP 5432 FAIL + Redis PASS. | Port DB fermé ou SG bloquant (pas de panne réseau globale). | 🛑 **BLOCK restart_app** |
+| **`DATABASE_POOL_EXHAUSTION_CASCADE`** | API latence spike + DB reachable + Pool exhausted (`postgres.pool_exhaustion: FAIL`) + Redis PASS. | Saturation des connexions DB. | 🛑 **BLOCK restart_app** |
+| **`CACHE_FAILURE_DATABASE_OVERLOAD`** | Redis OOM / FAIL + DB latence dégradée. | Tempête de requêtes (*cache stampede*) sur PostgreSQL. | 🛑 **BLOCK restart_app** |
+| **`UPSTREAM_MICROSERVICE_OUTAGE`** | API 503 / Circuit breaker FAIL + DB locale PASS + Redis PASS. | Panne de dépendance externe critique. | 🛑 **BLOCK restart_app** |
+| **`TOTAL_NETWORK_PARTITION`** | Port 5432 FAIL + Postgres FAIL + Redis FAIL. | Partition réseau globale / perte de passerelle. | 🛑 **BLOCK restart_app** |

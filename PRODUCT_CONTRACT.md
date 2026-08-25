@@ -1,7 +1,7 @@
 # EvidenceTool — PRODUCT_CONTRACT.md
 
-**Version:** 3.0 (V0.3 Situational Contract)
-**Status:** Locked and frozen for V0.3 release
+**Version:** 8.0 (V0.8 Distributed Contract)
+**Status:** Active specification for V0.8 Multi-Domain & Distributed Engine
 **Scope:** This document defines the minimal functional and architectural contract that the EvidenceTool codebase must respect.
 
 ---
@@ -525,6 +525,27 @@ Every diagnosis result must expose causality and provenance as first-class citiz
 - **V0.3**: Single-domain infrastructure diagnosis (Nginx / TLS / Systemd).
 - **V0.5**: Multi-domain infrastructure evidence (OS, Process, Filesystem, Network, Docker).
 - **V0.6**: Dependency-aware diagnosis (PostgreSQL, MySQL, Redis, Upstream APIs, SLA budgets).
-- **V0.7**: Cross-provider root-cause analysis (Distinguishing Symptoms vs Contributing Factors vs Root Cause in DAG graphs).
-- **V0.8+**: Distributed, Kubernetes, and Cloud operational environments.
+- **V0.7**: Kubernetes diagnostic domain (Mode A kubectl CLI with namespace confinement).
+- **V0.8**: Distributed diagnosis & cross-domain multi-signal correlation.
 - **Future**: Autonomous AI-agent operational diagnosis and safety governance boundary.
+
+---
+
+## 19. Kubernetes Diagnostic Domain (V0.7 Contract)
+
+### 19.1 Execution Scoping (Mode A `kubectl` CLI)
+1. **CLI-Based Subprocess Execution**: Construction of strict argument lists (`kubectl get ... -o json`) executed via `run_command` without a shell.
+2. **Zero Mutation Guarantee**: Read-only operations (`get`, `describe`, `cluster-info`). Zero mutation commands (`apply`, `delete`, `scale`, `exec`, `cordon`, `drain`).
+3. **Confinement by Namespace (`KubernetesCapability`)**: Strict namespace access whitelist (`allowed_namespaces`) with automated security denial on system namespaces (`kube-system`, `kube-public`, `kube-node-lease`).
+
+---
+
+## 20. Distributed Diagnosis & Cross-Domain Correlation (V0.8 Contract)
+
+### 20.1 Cross-Domain Multi-Signal Invariant
+In distributed architectures, single-layer observations cannot distinguish symptoms from root causes. The correlation engine evaluates composite multi-signal signatures across application, data, cache, and transport layers simultaneously:
+- **`DATABASE_CONNECTIVITY_FAILURE`**: Application 500 + PostgreSQL unreachable + TCP/5432 connection failure + Redis ping PASS (rules out global network partition).
+- **`DATABASE_POOL_EXHAUSTION_CASCADE`**: Application latency spike + Database reachable + Pool exhausted (`Too many clients`).
+- **`CACHE_FAILURE_DATABASE_OVERLOAD`**: Redis memory saturation (OOM) + Database query latency spike.
+- **`UPSTREAM_MICROSERVICE_OUTAGE`**: Application 503 / circuit breaker triggered + Local database PASS + Cache PASS.
+- **`TOTAL_NETWORK_PARTITION`**: Multi-port simultaneous unreachable states across all remote endpoints.
