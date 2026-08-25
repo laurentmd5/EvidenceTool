@@ -1,0 +1,27 @@
+version: "1.0"
+action: restart_application
+risk: HIGH
+schema: "v2"
+
+allow:
+  - DISTRIBUTED_HEALTHY
+
+blocked_by:
+  - DATABASE_CONNECTIVITY_FAILURE
+  - DATABASE_POOL_EXHAUSTION_CASCADE
+  - CACHE_FAILURE_DATABASE_OVERLOAD
+  - UPSTREAM_MICROSERVICE_OUTAGE
+  - DISTRIBUTED_SPLIT_BRAIN_OR_READ_ONLY
+  - TOTAL_NETWORK_PARTITION
+
+required_evidence:
+  - id: dependency.http_status
+    on_unknown: IGNORE
+  - id: postgres.reachable
+    on_unknown: IGNORE
+  - id: redis.reachable
+    on_unknown: IGNORE
+  - id: network.port_reachable
+    on_unknown: IGNORE
+
+human_approval: false

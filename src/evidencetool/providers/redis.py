@@ -89,9 +89,9 @@ class RedisProvider:
         self._capabilities = context.execution.capabilities
         self._probe_count = 0
         host = context.get("host", "")
-        target_host = context.get("target_host") or context.get("redis_host") or "127.0.0.1"
+        target_host = context.get("redis_host") or context.get("target_host") or "127.0.0.1"
 
-        port_str = context.get("port") or context.get("redis_port")
+        port_str = context.get("redis_port") or context.get("port")
         if port_str:
             try:
                 port = int(port_str)
@@ -418,19 +418,20 @@ class RedisProvider:
 
             sock.close()
         except Exception as e:
-            observations.append(
-                Observation(
-                    id="redis.ping",
-                    source="redis",
-                    category="datastore",
-                    collector=COLLECTOR,
-                    method="RESP_SESSION",
-                    value={"status": "FAIL", "failure": "SESSION_ERROR", "error": str(e)},
-                    message=f"Redis session error: {e}",
-                    observed_at=_now(),
-                    host=host,
+            if not any(o.id == "redis.ping" for o in observations):
+                observations.append(
+                    Observation(
+                        id="redis.ping",
+                        source="redis",
+                        category="datastore",
+                        collector=COLLECTOR,
+                        method="RESP_SESSION",
+                        value={"status": "FAIL", "failure": "SESSION_ERROR", "error": str(e)},
+                        message=f"Redis session error: {e}",
+                        observed_at=_now(),
+                        host=host,
+                    )
                 )
-            )
 
         return observations
 

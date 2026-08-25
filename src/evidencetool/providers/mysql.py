@@ -36,9 +36,9 @@ class MySQLProvider:
         self._capabilities = context.execution.capabilities
         self._probe_count = 0
         host = context.get("host", "")
-        target_host = context.get("target_host") or context.get("mysql_host") or "127.0.0.1"
+        target_host = context.get("db_host") or context.get("mysql_host") or context.get("target_host") or "127.0.0.1"
 
-        port_str = context.get("port") or context.get("mysql_port")
+        port_str = context.get("db_port") or context.get("mysql_port") or context.get("port")
         if port_str:
             try:
                 port = int(port_str)

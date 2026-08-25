@@ -109,10 +109,13 @@ def diagnose(  # noqa: C901
             provider_instance = get_provider(namespace)
             collected = provider_instance.collect(provider_context)
             for observation in collected:
-                valid_namespace = observation.id.startswith(f"{namespace}.")
-                valid_docker_alias = namespace in {"docker", "container"} and observation.id.startswith("docker.")
-                valid_source = observation.source in {namespace, "docker"}
-                if not valid_source or not (valid_namespace or valid_docker_alias):
+                valid_namespace = (
+                    observation.id.startswith(f"{namespace}.")
+                    or (namespace in {"docker", "container"} and (observation.id.startswith("docker.") or observation.id.startswith("container.")))
+                    or (namespace in {"k8s", "kubernetes"} and (observation.id.startswith("k8s.") or observation.id.startswith("kubernetes.")))
+                )
+                valid_source = observation.source in {namespace, "docker", "container", "k8s", "kubernetes"}
+                if not valid_source or not valid_namespace:
                     raise CapabilityDenied(
                         f"Provider '{namespace}' returned invalid observation '{observation.id}'."
                     )
