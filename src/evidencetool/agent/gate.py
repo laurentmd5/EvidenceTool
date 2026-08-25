@@ -87,6 +87,11 @@ class AgentSafetyGate:
             capabilities=self._capabilities,
         )
 
+        # Enforce SSH destination confinement (F-01)
+        ssh_host = request.context.get("host")
+        if ssh_host:
+            self._capabilities.require_network("ssh_transport", str(ssh_host))
+
         # Run deterministic diagnosis
         # Ensure context values are strings for ProviderContext compatibility
         str_context: dict[str, str] = {str(k): str(v) for k, v in request.context.items()}

@@ -208,8 +208,12 @@ class PostgresProvider:
             else:
                 msg = f"PostgreSQL is not responding ({stdout})"
                 val = {"status": "FAIL", "failure": "NO_RESPONSE", "output": stdout}
+        elif host:
+            # Cannot run local socket probe for a remote SSH target without remote CLI
+            msg = "Remote PostgreSQL inspection over SSH requires pg_isready on target host"
+            val = {"status": "UNKNOWN", "target_host": target_host, "port": port}
         else:
-            # Wire protocol fallback via SSLRequest probe
+            # Wire protocol fallback via SSLRequest probe (local mode only)
             timeout = self._probe_timeout()
             t0 = time.time()
             try:

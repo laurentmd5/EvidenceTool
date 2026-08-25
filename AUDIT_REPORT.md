@@ -1,9 +1,10 @@
-# Rapport d'Audit Exhaustif — EvidenceTool (v0.5.0)
+# Rapport d'Audit — EvidenceTool (v0.9.0)
 
 **Date de l'audit** : 25 Août 2026  
-**Version évaluée** : `v0.5.0` (Branche `dev` — commit `4159cba`)  
-**Auditeur** : Antigravity QA & Security Audit Suite  
-**Statut Global** : 🟢 **CONFORME / PRODUCTION-READY (Niveau A+)**
+**Version évaluée** : `v0.9.0` annoncée par `CHANGELOG.md` (branche `dev` — commit `e145bd8`)
+**Date de vérification** : 25 août 2026
+**Méthode** : revue statique ciblée, tests automatisés et contrôles qualité locaux
+**Statut Global** : **NON APPROUVÉ POUR UNE INTÉGRATION AGENT/SSH EN PRODUCTION**
 
 ---
 
@@ -11,12 +12,12 @@
 
 EvidenceTool est un moteur d'observabilité opérationnelle, d'évaluation de preuves et d'aide à la décision en lecture seule conçu pour diagnostiquer les incidents d'infrastructure avant toute action corrective automatique ou humaine.
 
-L'audit complet a porté sur 6 piliers majeurs :
+L'audit a porté sur les piliers suivants :
 1. **Architecture & Découplage** : Étanchéité entre la collecte de preuves, les modèles de décision, l'évaluation des politiques et les recommandations.
 2. **Sécurité Offensive / Défensive (AppSec & SAST)** : Analyse statique de code, prévention des injections de commandes (`subprocess`), désanonymisation des secrets dans les logs, et confinement des sondes.
 3. **Sécurité de la Chaîne d'Approvisionnement (SCA)** : Audit des dépendances figées contre les bases de vulnérabilités CVE / PyPA.
 4. **Modèle de Confinement & Confiance (Capabilities & Provider Trust)** : Mécanisme de permission granulaire pour les agents autonomes et validation cryptographique (SHA-256) des plugins externes.
-5. **Couverture & Fiabilité des Tests (Unitaires & E2E Réels)** : Taux de couverture, robustesse des scénarios multi-environnements (Ubuntu 22.04 LTS, Debian 12, Docker daemon).
+5. **Couverture & Fiabilité des Tests** : Tests unitaires, intégration et couverture des chemins locaux/distants.
 6. **Conformité des Contrats & Documentation** : Respect des invariants formels définis dans `PRODUCT_CONTRACT.md`, `README.md` et `SECURITY.md`.
 
 ---
@@ -25,19 +26,57 @@ L'audit complet a porté sur 6 piliers majeurs :
 
 | Domaine d'Audit | Outil / Méthode | Objectif | Résultat Obtenu | Statut |
 | :--- | :--- | :--- | :--- | :---: |
-| **Qualité & Style de Code** | `Ruff 0.8.2` | PEP8, complexité cyclomatique, imports | **0 erreur** (38 fichiers sources analysés) | 🟢 PASS |
-| **Typage Statique Strict** | `Mypy 1.14.0` | `strict = true`, type safety 100% | **0 erreur** (38 fichiers sources typés) | 🟢 PASS |
-| **Sécurité du Code (SAST)** | `Bandit 1.8.0` | B108, B404, B602 (Shell injection) | **0 vulnérabilité** (2 571 LOC analysées) | 🟢 PASS |
-| **Vulnérabilités Dépendances (SCA)** | `pip-audit 2.7.3` | Scan CVE sur `pyproject.toml` | **0 CVE trouvée** (Toutes dépendances patchées) | 🟢 PASS |
-| **Tests Unitaires & Intégration** | `Pytest 9.0.3` | Exhaustivité des scénarios | **140 / 140 tests passés (100%)** | 🟢 PASS |
-| **Couverture de Code (Coverage)** | `pytest-cov 6.0.0` | Mesure d'exécution des branches | **85% globale** (Cœur décisionnel à 98-100%) | 🟢 PASS |
-| **Tests E2E Opérationnels Réels** | Bash + Docker + Systemd | 7 Providers sous Ubuntu / Debian / Docker | **100% de réussite** (Nginx, TLS, Sys, Net, Proc, FS, Docker) | 🟢 PASS |
+| **Qualité & Style de Code** | Ruff | Analyse `src/` et `tests/` | **0 erreur** | PASS |
+| **Typage Statique Strict** | Mypy | `mypy src` | **0 erreur** | PASS |
+| **Sécurité du Code (SAST)** | Bandit | Scan `src/` | **0 alerte** | PASS |
+| **Tests Unitaires & Intégration** | Pytest | Suite complète | **190 réussis, 1 échec sur 191** | FAIL |
+| **Couverture de Code** | Pytest-cov | Suite complète | **83%**, chemins distants data partiellement couverts | ATTENTION |
+| **Analyse des dépendances** | pip-audit | Environnement Python courant | **112 alertes dans 23 paquets**; scan pollué par l’environnement global | NON CONCLUANT |
+| **E2E Linux/Docker** | Scripts Bash | Non exécutés sur Windows | **Non vérifiés dans cet audit** | NON VÉRIFIÉ |
+
+## 3. Findings
+
+### F-01 — Élevé — Destination SSH non confinée pour le SDK agent
+
+`AgentDiagnosisRequest.context` est converti en contexte provider sans validation. Le champ `host` peut donc être fourni par l’agent et transmis à SSH, alors que `ExecutionContext.transport_host` n’est jamais comparé à une liste autorisée et que `NetworkCapability` ne contrôle pas les destinations SSH.
+
+**Impact :** un agent autorisé à utiliser le SDK peut déclencher des collectes sur tout hôte SSH accessible avec les identifiants présents dans l’environnement. Cela contredit le modèle Zero-Trust documenté.
+
+**Correctif recommandé :** ajouter une capability dédiée aux hôtes de transport, valider l’hôte dans le SDK avant toute collecte et refuser toute divergence entre le transport déclaré et `context["host"]`. Ajouter des tests d’autorisation et de refus.
+
+### F-02 — Élevé — Les providers de données ignorent le transport distant
+
+Le provider MySQL et le provider Redis utilisent `socket.create_connection` directement même lorsqu’un `host` SSH est fourni. PostgreSQL utilise aussi un socket local dans son fallback lorsque `pg_isready` n’est pas disponible.
+
+**Impact :** une exécution distante peut combiner une connectivité mesurée sur la machine distante avec des preuves applicatives collectées localement. Une décision `ALLOW` peut ainsi être fondée sur le mauvais serveur.
+
+**Correctif recommandé :** exécuter chaque sonde via le transport SSH lorsque `host` est défini, ou retourner `UNKNOWN` si le provider distant ne supporte pas cette sonde. Ajouter des tests d’intégration distants pour MySQL, PostgreSQL et Redis.
+
+### F-03 — Moyen — Secrets potentiellement rendus dans les observations dependency
+
+L’URL fournie au provider dependency est conservée dans `value`, `method` et les messages. Une URL contenant `user:password@host` ou un token dans sa query string peut donc apparaître dans le JSON CLI et les journaux d’audit.
+
+**Correctif recommandé :** parser puis normaliser les URLs pour supprimer les identifiants et paramètres sensibles avant de les stocker ou de les afficher; conserver uniquement l’hôte, le port et le chemin non sensible.
+
+### F-04 — Faible — Limite de fraîcheur incorrecte à la borne exacte
+
+Le contrat définit une preuve comme obsolète à `max_age` secondes ou plus. L’évaluateur utilise `age > max_age`; une preuve exactement à la limite reste donc considérée comme fraîche.
+
+**Correctif recommandé :** utiliser `age >= max_age` et ajouter un test de frontière.
+
+### F-05 — Moyen — La mesure de latence peut masquer une violation de SLA
+
+Le provider dependency arrondit la latence mesurée à deux décimales avant de la comparer au budget SLA. Dans le scénario de test avec un budget de `0.00001` ms, la mesure devient `0.0` ms et la situation `UPSTREAM_LATENCY_DEGRADATION` n'est pas corrélée.
+
+**Impact :** les budgets SLA inférieurs à la précision effective de l'arrondi peuvent être classés à tort comme respectés, et le scénario de décision associé échoue.
+
+**Correctif recommandé :** comparer la mesure non arrondie au budget, puis arrondir uniquement la valeur destinée à l'affichage. Ajouter des tests avec des budgets réalistes et des valeurs proches de la limite.
 
 ---
 
-## 3. Analyse Détaillée par Axe
+## 4. Analyse Détaillée par Axe
 
-### 3.1. Architecture & Intégrité Décisionnelle
+### 4.1. Architecture & Intégrité Décisionnelle
 
 ```
                  [ PROVIDER ]
@@ -64,30 +103,31 @@ L'audit complet a porté sur 6 piliers majeurs :
 - **Invariant fondamental** : La recommandation est un module purement consultatif en aval de la décision. Les tests d'architecture (`tests/test_architecture.py` et `tests/test_nginx_scenarios.py::test_06_recommendation_changes_decision_unchanged_e2e`) garantissent formellement qu'une modification des règles de recommandation ne peut **jamais** modifier une décision `BLOCK` en `ALLOW`.
 - **Anti-Spoofing** : `diagnose.py` filtre et valide que chaque provider émet uniquement des observations appartenant à son namespace légitime (impossible pour un provider tiers de falsifier des preuves `docker.*` ou `systemd.*`).
 
-### 3.2. Sécurité Applicative & Protection contre les Injections
+### 4.2. Sécurité Applicative & Protection contre les Injections
 
 - **Exécution Shell Sécurisée** :
   - Aucun appel n'utilise `shell=True`.
   - Tous les arguments dynamiques pour les sondes locales ou distantes (SSH) sont strictement filtrés et échappés avec `shlex.quote()`.
-- **Désanonymisation des Données Sensibles (DLP)** :
-  - `DockerProvider` applique un filtre Regex `_sanitize_logs()` pour biffer automatiquement les mots de passe, tokens, secrets et clés API (`[REDACTED]`).
-  - La taille des logs capturés est bornée à 4 096 caractères pour empêcher les attaques par déni de service (DoS mémoire).
+- **Réduction partielle de l'exposition des données** :
+  - `DockerProvider` applique un filtre Regex `_sanitize_logs()` et limite les logs à 8 192 caractères.
+  - Ce filtre ne protège pas les URLs dependency contenant des credentials ou des tokens; voir F-03.
 - **Gestion Cryptographique Universelle (TLS Provider)** :
   - Remplacement des anciens appels spécifiques RSA par `openssl x509 -pubkey` et `openssl pkey -pubout`.
   - Support certifié de toutes les paires cryptographiques modernes : RSA, ECDSA (P-256, P-384, P-521) et Ed25519.
 
-### 3.3. Système de Capacités & Confinement d'Exécution (`CapabilitySet`)
+### 4.3. Système de Capacités & Confinement d'Exécution (`CapabilitySet`)
 
 Pour une intégration sécurisée dans des environnements d'agents autonomes :
 - **Réseau restreint (`NetworkCapability`)** :
   - Liste blanche d'opérations : `dns_lookup`, `tcp_connect`, `icmp_echo`.
   - Contrôle d'accès par IP/CIDR (ex: restreindre à `10.0.0.0/8` ou `127.0.0.1`).
   - Restriction de ports autorisés et plafond sur le nombre de sondes (`max_probes`).
-  - En cas de dépassement ou de tentative non autorisée, levée immédiate de `CapabilityDenied` se traduisant par une preuve `UNKNOWN` explicite sans planter l'exécution.
+  - En cas de dépassement ou de tentative non autorisée, levée de `CapabilityDenied` et production d'une preuve `UNKNOWN` dans les chemins pris en charge.
+  - Le confinement des hôtes SSH n'est pas implémenté pour le SDK agent; voir F-01.
 - **Vérification d'intégrité des Plugins (`load_approved_plugins`)** :
   - Les providers externes doivent être déclarés avec leur hash **SHA-256**. Tout fichier modifié ou corrompu est rejeté avant même son importation dans l'interpréteur Python.
 
-### 3.4. Chaîne d'Approvisionnement & Dépendances
+### 4.4. Chaîne d'Approvisionnement & Dépendances
 
 L'ensemble des dépendances directes du projet est rigoureusement verrouillé :
 - `pyyaml == 6.0.2`
@@ -97,68 +137,33 @@ L'ensemble des dépendances directes du projet est rigoureusement verrouillé :
 - `jsonschema == 4.23.0`
 - `types-PyYAML == 6.0.12.20241230`
 
-Audit `pip-audit` : **0 vulnérabilité connue (0 CVE)**.
+Le scan `pip-audit` exécuté dans l'environnement courant a retourné 112 alertes sur 23 paquets installés. Ce résultat inclut des paquets sans rapport avec les dépendances directes du projet; il est donc non concluant pour la release. Le pipeline doit être exécuté dans un environnement virtuel propre et son résultat archivé.
 
 ---
 
-## 4. Bilan des Tests & Couverture
+## 5. Bilan des Tests & Couverture
 
-### Répartition des 140 Tests Unitaires & d'Intégration
-- **Architecture & Invariants** : 10 tests (`test_architecture.py`)
-- **Capacités & Confinement** : 3 tests (`test_capability.py`)
-- **Interface CLI** : 2 tests (`test_cli.py`)
-- **Moteur de Décision & Intégrité** : 21 tests (`test_decision.py`)
-- **Évaluation des Preuves & Fraîcheur (TTL/Staleness)** : 7 tests (`test_evidence.py`)
-- **Sémantique V0.3 / V0.5 & Catalogues** : 10 tests (`test_v03_semantics.py`, `test_observability_v05.py`)
-- **Moteur de Politiques** : 8 tests (`test_policy.py`)
-- **Transport SSH Distant** : 5 tests (`test_ssh_transport.py`)
-- **Providers Dédiés (7 suites isolées)** :
-  - `Docker` : 18 tests
-  - `Filesystem` : 5 tests
-  - `Network` : 8 tests
-  - `Nginx` : 7 tests
-  - `Process` : 5 tests
-  - `Systemd` : 8 tests
-  - `TLS` : 6 tests
-  - `Provider Trust & Plugins` : 2 tests
-  - `Nginx End-to-End Scenarios` : 12 tests
+La suite locale compte **191 tests, dont 190 réussis et 1 échec**. L'échec est `test_scenario_upstream_latency_degradation_blocks_restart` dans `tests/test_data_correlation.py`. La couverture mesurée est de **83%**. Les tests couvrent principalement les chemins locaux et les mocks SSH; ils ne détectent pas F-02, car les providers de données ne disposent pas de scénarios distants représentatifs.
 
-### Suites E2E Opérationnelles Réelles
-1. **`tests/e2e/run_tests_in_container.sh`** :
-   Exécuté sous conteneurs avec `systemd` complet et utilisateur restreint non-root `evidencetool` :
-   - Nginx (Syntaxe invalide)
-   - TLS (Certificat expiré, manquant, mismatch clé/certificat)
-   - Systemd (Service arrêté, service non installé)
-   - Filesystem (Espace disponible normal, saturation seuil disque)
-   - Network (Port 443 ouvert, port 59999 fermé, IP injoignable)
-   - Process (Processus actif avec PID, processus absent, détection réelle d'état Zombie `Z`)
-2. **`tests/e2e/run_docker_e2e.sh`** :
-   Exécuté contre le démon Docker :
-   - Conteneur arrêté (`CONTAINER_STOPPED` -> `ALLOW`)
-   - Boucle de crash (`CONTAINER_CRASH_LOOP` -> `ALLOW`)
-   - Healthcheck KO (`CONTAINER_UNHEALTHY` -> `ALLOW`)
-   - Conteneur inexistant (`CONTAINER_NOT_FOUND` -> `BLOCK`)
-   - Conteneur sain en fonctionnement (`BLOCK` — action non justifiée)
+Les scripts E2E Linux/Docker existent dans `tests/e2e/`, mais n'ont pas été exécutés dans cet audit sur l'environnement Windows.
 
 ---
 
-## 5. Recommandations & Axes d'Amélioration Futurs
+## 6. Recommandations & Axes d'Amélioration
 
-Bien que le projet soit dans un état d'excellence technique, les axes suivants sont recommandés pour les versions ultérieures (`v0.6+`) :
+Les actions prioritaires avant approbation sont :
 
-1. **Couverture du module `render.py` et `metrics.py`** :
-   - Actuellement à ~38% et ~34% de couverture car non critiques pour la décision métier. Ajouter quelques tests unitaires sur les sorties tabulaires et l'exportation Prometheus des métriques pour atteindre >90% de couverture globale.
-2. **Support de Signature GPG / Cosign pour les Manifestes de Plugins** :
-   - Compléter la vérification par hash SHA-256 en intégrant une signature cryptographique asymétrique des manifestes de plugins pour les déploiements d'entreprise.
+1. Corriger F-01 et ajouter une liste blanche explicite des hôtes SSH.
+2. Corriger F-02 et tester chaque provider de données en mode distant.
+3. Corriger F-03 avec une fonction commune de redaction des URLs et secrets.
+4. Corriger F-05 en conservant la précision de mesure jusqu'à la comparaison SLA.
+5. Corriger F-04 et ajouter le test de frontière `age == max_age`.
+6. Relancer `pip-audit` dans un environnement virtuel propre et vérifier les dépendances de production séparément des outils de test.
 
 ---
 
-## 6. Conclusion de l'Audit
+## 7. Conclusion de l'Audit
 
-Le projet **EvidenceTool v0.5.0** respecte l'ensemble des standards les plus stricts de l'ingénierie logicielle et de la sécurité opérationnelle :
-- Code propre, typé et documenté.
-- Invariants formels inviolables.
-- Pipeline CI/CD 100% vert avec tests multi-distributions et multi-environnements.
-- Sécurité SAST / SCA irréprochable.
+EvidenceTool présente une base partiellement saine: Ruff, Mypy et Bandit passent, mais la suite de tests n'est pas entièrement verte. Les défauts de confinement SSH, de collecte distante et de mesure SLA peuvent fausser une décision opérationnelle ou élargir l'accès d'un agent au-delà de ses permissions déclarées.
 
-**Avis final : APPROUVÉ POUR DÉPLOIEMENT EN PRODUCTION ET RELEASE PUBLIQUE.**
+**Avis final : non approuvé pour une intégration agent/SSH en production avant correction de F-01 et F-02.**

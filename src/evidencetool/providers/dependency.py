@@ -16,7 +16,7 @@ import ssl
 import time
 from datetime import datetime, timezone
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from evidencetool.capability.models import CapabilityDenied
 from evidencetool.models.observation import Observation
@@ -29,6 +29,46 @@ COLLECTOR = "dependency_provider"
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _sanitize_url(raw_url: str) -> str:
+    """Removes user:password credentials and redacts sensitive query parameters."""
+    try:
+        parsed = urlparse(raw_url)
+        # Redact credentials in netloc
+        netloc = parsed.hostname or ""
+        if parsed.port:
+            netloc = f"{netloc}:{parsed.port}"
+
+        # Redact sensitive query parameters
+        if parsed.query:
+            queries = parse_qsl(parsed.query, keep_blank_values=True)
+            sanitized_query = []
+            sensitive_keywords = (
+                "token",
+                "key",
+                "secret",
+                "auth",
+                "password",
+                "pass",
+                "bearer",
+                "sig",
+                "signature",
+                "api_key",
+                "apikey",
+            )
+            for k, v in queries:
+                if any(kw in k.lower() for kw in sensitive_keywords):
+                    sanitized_query.append((k, "[REDACTED]"))
+                else:
+                    sanitized_query.append((k, v))
+            query_str = urlencode(sanitized_query)
+        else:
+            query_str = ""
+
+        return urlunparse((parsed.scheme, netloc, parsed.path, parsed.params, query_str, parsed.fragment))
+    except Exception:
+        return raw_url
 
 
 @provider("dependency")
@@ -93,19 +133,19 @@ class DependencyProvider:
         if res.ran and res.returncode == 0 and ":" in res.stdout:
             code_str, latency_str = res.stdout.strip().split(":", 1)
             code = int(code_str) if code_str.isdigit() else 0
-            latency_ms = round(float(latency_str) * 1000.0, 2) if latency_str else 0.0
+            raw_latency_ms = float(latency_str) * 1000.0 if latency_str else 0.0
             error = None
         else:
             code = 0
-            latency_ms = 0.0
+            raw_latency_ms = 0.0
             error = res.stderr.strip() if res.ran else res.error
 
-        return self._build_observations(url, code, latency_ms, sla_budget_ms, host, error)
+        return self._build_observations(url, code, raw_latency_ms, sla_budget_ms, host, error)
 
     def _probe_local(
         self, scheme: str, target_host: str, port: int, http_path: str, url: str, timeout: float, sla_budget_ms: float
     ) -> tuple[Observation, Observation, Observation, Observation]:
-        start_t = time.time()
+        start_t = time.perf_counter()
         error = None
         code = 0
 
@@ -123,13 +163,13 @@ class DependencyProvider:
             conn.request("GET", http_path, headers={"User-Agent": "EvidenceTool/0.6.0-DependencyProbe"})
             resp = conn.getresponse()
             code = resp.status
-            latency_ms = round((time.time() - start_t) * 1000.0, 2)
+            raw_latency_ms = (time.perf_counter() - start_t) * 1000.0
             conn.close()
         except Exception as e:
-            latency_ms = round((time.time() - start_t) * 1000.0, 2)
+            raw_latency_ms = (time.perf_counter() - start_t) * 1000.0
             error = str(e)
 
-        return self._build_observations(url, code, latency_ms, sla_budget_ms, None, error)
+        return self._build_observations(url, code, raw_latency_ms, sla_budget_ms, None, error)
 
     def _probe_endpoint(
         self,
@@ -141,7 +181,8 @@ class DependencyProvider:
         sla_budget_ms: float,
         host: str | None,
     ) -> tuple[Observation, Observation, Observation, Observation]:
-        method = f"http_get({url})"
+        sanitized_url = _sanitize_url(url)
+        method = f"http_get({sanitized_url})"
         try:
             self._require_network("http_probe", target_host, port)
         except CapabilityDenied as exc:
@@ -157,23 +198,26 @@ class DependencyProvider:
         return self._probe_local(scheme, target_host, port, http_path, url, timeout, sla_budget_ms)
 
     def _build_observations(
-        self, url: str, code: int, latency_ms: float, sla_budget_ms: float, host: str | None, error: str | None
+        self, raw_url: str, code: int, raw_latency_ms: float, sla_budget_ms: float, host: str | None, error: str | None
     ) -> tuple[Observation, Observation, Observation, Observation]:
+        sanitized_url = _sanitize_url(raw_url)
+        display_latency_ms = round(raw_latency_ms, 2)
+
         # 1. HTTP Status Observation
         if 200 <= code < 400:
-            status_val: dict[str, Any] = {"status": "PASS", "status_code": code, "url": url}
+            status_val: dict[str, Any] = {"status": "PASS", "status_code": code, "url": sanitized_url}
             status_msg = f"Upstream dependency returned HTTP {code}"
         elif code >= 500:
-            status_val = {"status": "FAIL", "failure": "HTTP_5XX", "status_code": code, "url": url}
+            status_val = {"status": "FAIL", "failure": "HTTP_5XX", "status_code": code, "url": sanitized_url}
             status_msg = f"Upstream dependency returned server error HTTP {code}"
         elif code == 429:
-            status_val = {"status": "FAIL", "failure": "HTTP_429", "status_code": code, "url": url}
+            status_val = {"status": "FAIL", "failure": "HTTP_429", "status_code": code, "url": sanitized_url}
             status_msg = "Upstream dependency returned rate limit HTTP 429"
         elif error:
-            status_val = {"status": "FAIL", "failure": "CONNECT_FAILED", "error": error, "url": url}
+            status_val = {"status": "FAIL", "failure": "CONNECT_FAILED", "error": error, "url": sanitized_url}
             status_msg = f"Could not reach upstream dependency: {error}"
         else:
-            status_val = {"status": "FAIL", "failure": f"HTTP_{code}", "status_code": code, "url": url}
+            status_val = {"status": "FAIL", "failure": f"HTTP_{code}", "status_code": code, "url": sanitized_url}
             status_msg = f"Upstream dependency returned HTTP {code}"
 
         obs_status = Observation(
@@ -181,7 +225,7 @@ class DependencyProvider:
             source="dependency",
             category="dependency",
             collector=COLLECTOR,
-            method=f"http_get({url})",
+            method=f"http_get({sanitized_url})",
             value=status_val,
             message=status_msg,
             observed_at=_now(),
@@ -194,27 +238,27 @@ class DependencyProvider:
             source="dependency",
             category="dependency",
             collector=COLLECTOR,
-            method=f"latency({url})",
-            value={"status": "PASS" if error is None else "FAIL", "latency_ms": latency_ms, "url": url},
-            message=f"Upstream dependency response latency: {latency_ms}ms",
+            method=f"latency({sanitized_url})",
+            value={"status": "PASS" if error is None else "FAIL", "latency_ms": display_latency_ms, "url": sanitized_url},
+            message=f"Upstream dependency response latency: {display_latency_ms}ms",
             observed_at=_now(),
             host=host,
         )
 
-        # 3. SLA Budget Observation
-        if error is None and latency_ms <= sla_budget_ms:
-            sla_msg = f"Latency {latency_ms}ms respects SLA budget ({sla_budget_ms}ms)"
+        # 3. SLA Budget Observation (compare exact raw_latency_ms)
+        if error is None and raw_latency_ms <= sla_budget_ms:
+            sla_msg = f"Latency {display_latency_ms}ms respects SLA budget ({sla_budget_ms}ms)"
             sla_val: dict[str, Any] = {
                 "status": "PASS",
-                "latency_ms": latency_ms,
+                "latency_ms": display_latency_ms,
                 "sla_budget_ms": sla_budget_ms,
             }
         else:
-            sla_msg = f"Latency {latency_ms}ms violates SLA budget ({sla_budget_ms}ms)"
+            sla_msg = f"Latency {display_latency_ms}ms violates SLA budget ({sla_budget_ms}ms)"
             sla_val = {
                 "status": "FAIL",
                 "failure": "SLA_VIOLATED",
-                "latency_ms": latency_ms,
+                "latency_ms": display_latency_ms,
                 "sla_budget_ms": sla_budget_ms,
             }
 
@@ -223,7 +267,7 @@ class DependencyProvider:
             source="dependency",
             category="dependency",
             collector=COLLECTOR,
-            method=f"sla_check({url})",
+            method=f"sla_check({sanitized_url})",
             value=sla_val,
             message=sla_msg,
             observed_at=_now(),
@@ -243,7 +287,7 @@ class DependencyProvider:
             source="dependency",
             category="dependency",
             collector=COLLECTOR,
-            method=f"circuit_breaker({url})",
+            method=f"circuit_breaker({sanitized_url})",
             value=cb_val,
             message=cb_msg,
             observed_at=_now(),
@@ -260,23 +304,28 @@ class DependencyProvider:
         self._probe_count += 1
 
     def _probe_timeout(self) -> float:
-        return max(1, math.ceil(self._capabilities.network.timeout_seconds))
+        timeout = self._capabilities.network.timeout_seconds
+        if not math.isfinite(timeout) or timeout <= 0:
+            return 2.0
+        return timeout
 
     def _unknown_observation(
-        self, evidence_id: str, method: str, target: str, capability: str, host: str | None, reason: str
+        self,
+        obs_id: str,
+        method: str,
+        target_host: str,
+        operation: str,
+        host: str | None,
+        msg: str,
     ) -> Observation:
         return Observation(
-            id=evidence_id,
+            id=obs_id,
             source="dependency",
             category="dependency",
             collector=COLLECTOR,
             method=method,
-            value={"status": "UNKNOWN", "capability_denied": True},
-            message=f"Capability denied: {reason}",
+            value={"status": "UNKNOWN", "target": target_host, "operation": operation},
+            message=msg,
             observed_at=_now(),
             host=host,
-            execution_scope="remote" if host else "local",
-            target=target,
-            capability=capability,
-            transport_status="capability_denied",
         )

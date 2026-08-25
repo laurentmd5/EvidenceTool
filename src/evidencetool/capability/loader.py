@@ -43,6 +43,7 @@ def _parse_network(raw: object) -> NetworkCapability:
             "redis_info",
             "db_ping",
             "db_pool_check",
+            "ssh_transport",
         ],
     )
     targets = raw.get("targets", ["*"])

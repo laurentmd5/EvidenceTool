@@ -171,23 +171,40 @@ class MySQLProvider:
             transport_status="executed",
         )
 
-    def _check_mysql_handshake(
-        self, target_host: str, port: int, host: str | None
-    ) -> tuple[Observation, float, bool, bool]:
-        try:
-            self._require_network("db_ping", target_host, port)
-        except CapabilityDenied as exc:
-            obs = self._unknown_observation("mysql.ping", "mysql_ping", target_host, "db_ping", host, str(exc))
-            return obs, 0.0, False, False
+    def _check_mysql_remote(
+        self, target_host: str, port: int, host: str, timeout: float
+    ) -> tuple[dict[str, Any], str, float, bool]:
+        t0 = time.time()
+        res = run_command(["mysqladmin", "ping", "-h", target_host, "-P", str(port)], host=host, timeout=timeout + 1)
+        latency_ms = round((time.time() - t0) * 1000.0, 2)
+        too_many_connections = False
 
-        timeout = self._probe_timeout()
+        if res.ran:
+            stdout = res.stdout.strip()
+            stderr = res.stderr.strip()
+            if res.returncode == 0:
+                msg = f"MySQL is alive ({stdout})"
+                val: dict[str, Any] = {"status": "PASS", "output": stdout}
+            elif "Too many connections" in stdout or "Too many connections" in stderr:
+                too_many_connections = True
+                msg = "MySQL Error 1040: Too many connections"
+                val = {"status": "FAIL", "failure": "TOO_MANY_CONNECTIONS", "error_code": 1040}
+            else:
+                msg = f"MySQL ping failed: {stderr or stdout}"
+                val = {"status": "FAIL", "failure": "PING_FAILED", "output": stderr or stdout}
+        else:
+            msg = "Remote MySQL inspection over SSH requires mysqladmin on target host"
+            val = {"status": "UNKNOWN", "target_host": target_host, "port": port}
+
+        return val, msg, latency_ms, too_many_connections
+
+    def _check_mysql_local(
+        self, target_host: str, port: int, timeout: float
+    ) -> tuple[dict[str, Any], str, float, bool]:
         t0 = time.time()
         too_many_connections = False
-        is_read_only = False
-
         try:
             with socket.create_connection((target_host, port), timeout=timeout) as s:
-                # Read MySQL Initial Handshake Packet
                 header = s.recv(4)
                 if len(header) < 4:
                     raise OSError("Incomplete MySQL packet header")
@@ -195,7 +212,7 @@ class MySQLProvider:
                 payload = s.recv(payload_len)
                 latency_ms = round((time.time() - t0) * 1000.0, 2)
 
-                if payload and payload[0] == 0xFF:  # Error Packet
+                if payload and payload[0] == 0xFF:
                     err_code = int.from_bytes(payload[1:3], "little") if len(payload) >= 3 else 0
                     if err_code == 1040:
                         too_many_connections = True
@@ -206,7 +223,6 @@ class MySQLProvider:
                         val = {"status": "FAIL", "failure": "HANDSHAKE_ERROR", "error_code": err_code}
                 elif payload and len(payload) > 1:
                     protocol_ver = payload[0]
-                    # Server version is null-terminated string starting at index 1
                     null_idx = payload.find(b"\x00", 1)
                     server_ver = payload[1:null_idx].decode("ascii", errors="replace") if null_idx > 1 else "unknown"
                     msg = f"MySQL handshake succeeded (Server: {server_ver}, Protocol: {protocol_ver})"
@@ -214,11 +230,27 @@ class MySQLProvider:
                 else:
                     msg = "MySQL received invalid handshake packet"
                     val = {"status": "FAIL", "failure": "INVALID_PACKET"}
-
         except Exception as e:
             latency_ms = round((time.time() - t0) * 1000.0, 2)
             msg = f"MySQL handshake connection failed: {e}"
             val = {"status": "FAIL", "failure": "CONNECT_ERROR", "error": str(e)}
+
+        return val, msg, latency_ms, too_many_connections
+
+    def _check_mysql_handshake(
+        self, target_host: str, port: int, host: str | None
+    ) -> tuple[Observation, float, bool, bool]:
+        try:
+            self._require_network("db_ping", target_host, port)
+        except CapabilityDenied as exc:
+            obs = self._unknown_observation("mysql.ping", "mysql_ping", target_host, "db_ping", host, str(exc))
+            return obs, 0.0, False, False
+
+        timeout = self._probe_timeout()
+        if host:
+            val, msg, latency_ms, too_many_connections = self._check_mysql_remote(target_host, port, host, timeout)
+        else:
+            val, msg, latency_ms, too_many_connections = self._check_mysql_local(target_host, port, timeout)
 
         obs = Observation(
             id="mysql.ping",
@@ -232,7 +264,7 @@ class MySQLProvider:
             host=host,
         )
 
-        return obs, latency_ms, too_many_connections, is_read_only
+        return obs, latency_ms, too_many_connections, False
 
     def _require_network(self, operation: str, target: str, port: int | None) -> None:
         self._capabilities.require_network(operation, target, port)

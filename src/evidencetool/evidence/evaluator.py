@@ -35,7 +35,7 @@ def evaluate_observation(
         status = EvidenceStatus.UNKNOWN
 
     is_stale = False
-    if max_age is not None and observation.age_seconds() > max_age:
+    if max_age is not None and observation.age_seconds() >= max_age:
         is_stale = True
         if status != EvidenceStatus.UNKNOWN:
             status = EvidenceStatus.UNKNOWN

@@ -212,3 +212,31 @@ def test_agent_safety_gate_capability_tamper_proofing():
             load_capability_policy(tmp_path, expected_hash=tampered_hash)
     finally:
         Path(tmp_path).unlink(missing_ok=True)
+
+
+def test_agent_safety_gate_unauthorized_ssh_host_rejected():
+    # Only allow 10.0.1.0/24 targets
+    caps = CapabilitySet(
+        network=NetworkCapability(targets=("10.0.1.0/24",))
+    )
+
+    gate = AgentSafetyGate(
+        capability_policy=caps,
+        catalog="catalogs/nginx.yaml",
+        default_policy="policies/nginx.yaml",
+    )
+
+    # Request targeting unauthorized SSH host 192.168.1.50
+    request = AgentDiagnosisRequest(
+        agent_id="curious-agent",
+        action="restart_nginx",
+        target="nginx",
+        context={
+            "service": "nginx",
+            "host": "192.168.1.50",
+            "config_path": "/etc/nginx/nginx.conf",
+        },
+    )
+
+    with pytest.raises(CapabilityDenied, match="Network target '192.168.1.50' is not authorized"):
+        gate.evaluate(request)

@@ -369,6 +369,118 @@ class RedisProvider:
 
         return obs
 
+    def _execute_redis_remote(
+        self, target_host: str, port: int, password: str, host: str, timeout: float
+    ) -> list[Observation]:
+        cmd = ["redis-cli", "-h", target_host, "-p", str(port)]
+        if password:
+            cmd.extend(["-a", password])
+        cmd.append("ping")
+        res = run_command(cmd, host=host, timeout=timeout + 1)
+        if not res.ran:
+            return [
+                Observation(
+                    id="redis.ping",
+                    source="redis",
+                    category="datastore",
+                    collector=COLLECTOR,
+                    method="PING",
+                    value={"status": "UNKNOWN", "target": target_host, "port": port},
+                    message="Remote Redis inspection over SSH requires redis-cli on target host",
+                    observed_at=_now(),
+                    host=host,
+                )
+            ]
+        stdout = res.stdout.strip()
+        stderr = res.stderr.strip()
+        if res.returncode == 0 and "PONG" in stdout:
+            return [
+                Observation(
+                    id="redis.ping",
+                    source="redis",
+                    category="datastore",
+                    collector=COLLECTOR,
+                    method="PING",
+                    value={"status": "PASS", "response": stdout},
+                    message=f"Redis PING succeeded over SSH ({stdout})",
+                    observed_at=_now(),
+                    host=host,
+                )
+            ]
+        return [
+            Observation(
+                id="redis.ping",
+                source="redis",
+                category="datastore",
+                collector=COLLECTOR,
+                method="PING",
+                value={"status": "FAIL", "failure": "PING_FAILED", "error": stderr or stdout},
+                message=f"Redis PING failed over SSH: {stderr or stdout}",
+                observed_at=_now(),
+                host=host,
+            )
+        ]
+
+    def _execute_redis_local(
+        self,
+        target_host: str,
+        port: int,
+        password: str,
+        username: str,
+        expected_role: str,
+        max_mem_ratio: float,
+        max_latency_ms: float,
+        timeout: float,
+    ) -> list[Observation]:
+        try:
+            sock = socket.create_connection((target_host, port), timeout=timeout)
+        except Exception as e:
+            return [
+                Observation(
+                    id="redis.ping",
+                    source="redis",
+                    category="datastore",
+                    collector=COLLECTOR,
+                    method="PING",
+                    value={"status": "FAIL", "failure": "CONNECT_FAILED", "error": str(e)},
+                    message=f"Could not connect to Redis: {e}",
+                    observed_at=_now(),
+                    host=None,
+                )
+            ]
+
+        observations: list[Observation] = []
+        try:
+            auth_ok, auth_obs = self._probe_auth(sock, password, username, None)
+            if auth_obs:
+                observations.append(auth_obs)
+
+            ping_ok, ping_obs_list = self._probe_ping(sock, max_latency_ms, None)
+            observations.extend(ping_obs_list)
+
+            if auth_ok and ping_ok:
+                info_obs_list = self._probe_info(sock, expected_role, max_mem_ratio, None)
+                observations.extend(info_obs_list)
+
+            sock.close()
+        except Exception as e:
+            if not any(o.id == "redis.ping" for o in observations):
+                observations.append(
+                    Observation(
+                        id="redis.ping",
+                        source="redis",
+                        category="datastore",
+                        collector=COLLECTOR,
+                        method="RESP_SESSION",
+                        value={"status": "FAIL", "failure": "SESSION_ERROR", "error": str(e)},
+                        message=f"Redis session error: {e}",
+                        observed_at=_now(),
+                        host=None,
+                    )
+                )
+
+        return observations
+
     def _execute_redis_probes(
         self,
         target_host: str,
@@ -386,54 +498,12 @@ class RedisProvider:
             return [self._unknown_observation("redis.ping", "redis_ping", target_host, "redis_ping", host, str(exc))]
 
         timeout = self._probe_timeout()
-        try:
-            sock = socket.create_connection((target_host, port), timeout=timeout)
-        except Exception as e:
-            return [
-                Observation(
-                    id="redis.ping",
-                    source="redis",
-                    category="datastore",
-                    collector=COLLECTOR,
-                    method="PING",
-                    value={"status": "FAIL", "failure": "CONNECT_FAILED", "error": str(e)},
-                    message=f"Could not connect to Redis: {e}",
-                    observed_at=_now(),
-                    host=host,
-                )
-            ]
+        if host:
+            return self._execute_redis_remote(target_host, port, password, host, timeout)
 
-        observations: list[Observation] = []
-        try:
-            auth_ok, auth_obs = self._probe_auth(sock, password, username, host)
-            if auth_obs:
-                observations.append(auth_obs)
-
-            ping_ok, ping_obs_list = self._probe_ping(sock, max_latency_ms, host)
-            observations.extend(ping_obs_list)
-
-            if auth_ok and ping_ok:
-                info_obs_list = self._probe_info(sock, expected_role, max_mem_ratio, host)
-                observations.extend(info_obs_list)
-
-            sock.close()
-        except Exception as e:
-            if not any(o.id == "redis.ping" for o in observations):
-                observations.append(
-                    Observation(
-                        id="redis.ping",
-                        source="redis",
-                        category="datastore",
-                        collector=COLLECTOR,
-                        method="RESP_SESSION",
-                        value={"status": "FAIL", "failure": "SESSION_ERROR", "error": str(e)},
-                        message=f"Redis session error: {e}",
-                        observed_at=_now(),
-                        host=host,
-                    )
-                )
-
-        return observations
+        return self._execute_redis_local(
+            target_host, port, password, username, expected_role, max_mem_ratio, max_latency_ms, timeout
+        )
 
     def _parse_info(self, raw_info: str) -> dict[str, str]:
         info: dict[str, str] = {}

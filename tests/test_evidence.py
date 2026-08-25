@@ -62,3 +62,10 @@ def test_no_max_age_constraint_never_marks_stale(observation_factory):
     evidence = evaluate_observation(obs, max_age=None)
     assert evidence.status == EvidenceStatus.PASS
     assert evidence.is_stale is False
+
+
+def test_evidence_exactly_at_max_age_is_marked_stale(observation_factory):
+    obs = observation_factory("nginx.config.valid", "PASS", age_seconds=30)
+    evidence = evaluate_observation(obs, max_age=30)
+    assert evidence.status == EvidenceStatus.UNKNOWN
+    assert evidence.is_stale is True

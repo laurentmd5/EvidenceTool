@@ -72,6 +72,7 @@ class NetworkCapability:
             "redis_info",
             "db_ping",
             "db_pool_check",
+            "ssh_transport",
         }
     )
     targets: tuple[str, ...] = ("*",)

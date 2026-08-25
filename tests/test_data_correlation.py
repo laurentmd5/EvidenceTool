@@ -100,9 +100,10 @@ def test_scenario_upstream_latency_degradation_blocks_restart():
         def close(self):
             pass
 
-    # Mock latency violation with tight SLA (0.0001 ms SLA)
-    with patch("evidencetool.providers.dependency.http.client.HTTPConnection", MockHTTPConn):
-        observations = p.collect(ProviderContext({"url": "http://127.0.0.1:8080/api/orders", "sla_budget_ms": "0.00001"}))
+    # Mock latency violation with realistic SLA: 250ms latency vs 50ms SLA budget
+    with patch("evidencetool.providers.dependency.http.client.HTTPConnection", MockHTTPConn), \
+         patch("evidencetool.providers.dependency.time.perf_counter", side_effect=[10.0, 10.250, 10.250]):
+        observations = p.collect(ProviderContext({"url": "http://127.0.0.1:8080/api/orders", "sla_budget_ms": "50.0"}))
 
     evidence = [evaluate_observation(o) for o in observations]
     state = correlate_state(evidence, catalog)
@@ -110,3 +111,29 @@ def test_scenario_upstream_latency_degradation_blocks_restart():
 
     assert decision.status.value == "BLOCK"
     assert "UPSTREAM_LATENCY_DEGRADATION" in decision.reason
+
+
+def test_remote_ssh_datastore_probes_handle_remote_cli_correctly():
+    # 1. Test PostgreSQL remote inspection over SSH
+    p_pg = PostgresProvider()
+    with patch("evidencetool.providers.postgres.run_command") as mock_pg_cmd:
+        mock_pg_cmd.side_effect = [
+            Mock(ran=True, returncode=0, stdout="", stderr=""),  # nc -z port reachable
+            Mock(ran=True, returncode=0, stdout="10.0.1.5:5432 - accepting connections", stderr=""),  # pg_isready
+        ]
+        obs_pg = p_pg.collect(ProviderContext({"target_host": "10.0.1.5", "port": "5432", "host": "db-server-01"}))
+        pg_map = {o.id: o for o in obs_pg}
+        assert pg_map["postgres.reachable"].value["status"] == "PASS"
+        assert pg_map["postgres.accepting_connections"].value["status"] == "PASS"
+
+    # 2. Test Redis remote inspection over SSH with redis-cli
+    p_redis = RedisProvider()
+    with patch("evidencetool.providers.redis.run_command") as mock_redis_cmd:
+        mock_redis_cmd.side_effect = [
+            Mock(ran=True, returncode=0, stdout="", stderr=""),  # nc -z port reachable
+            Mock(ran=True, returncode=0, stdout="PONG", stderr=""),  # redis-cli ping
+        ]
+        obs_redis = p_redis.collect(ProviderContext({"target_host": "10.0.1.6", "port": "6379", "host": "cache-server-01"}))
+        redis_map = {o.id: o for o in obs_redis}
+        assert redis_map["redis.reachable"].value["status"] == "PASS"
+        assert redis_map["redis.ping"].value["status"] == "PASS"
