@@ -1,27 +1,8 @@
 """
-Diagnose orchestration for the "nginx" vertical slice.
+Diagnose orchestration for EvidenceTool.
 
-This is the only place in the codebase that wires providers, the
-evaluator, the policy engine, the decision engine, and the recommendation
-module together. Providers themselves know nothing about policy or
-decision (per the architectural principle locked in the design phase):
-
-    Nginx Provider
-          |
-          v
-     Observation
-          |
-          v
-    Evidence Evaluator
-          |
-          v
-     Policy Engine
-          |
-          v
-    Decision Engine
-          |
-          v
-     Recommendation   (advisory only, cannot influence Decision)
+Wires providers, evaluator, policy engine, causal engine, decision engine,
+and recommendation module together into a unified operational reasoning pipeline.
 """
 
 from __future__ import annotations
@@ -30,15 +11,18 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 from evidencetool.capability.models import AuthorityMetadata, CapabilityDenied, ExecutionContext
+from evidencetool.causality.engine import reconstruct_causality
+from evidencetool.causality.models import CausalExplanation, CausalRule
 from evidencetool.decision.engine import decide
 from evidencetool.decision.integrity import validate_decision_integrity
 from evidencetool.evidence.evaluator import evaluate_observation
 from evidencetool.models.correlation import Situation
 from evidencetool.models.decision import Decision
 from evidencetool.models.evidence import Evidence
-from evidencetool.models.incident import Incident
+from evidencetool.models.incident import Incident, OperationalIncident
 from evidencetool.models.policy import Policy
 from evidencetool.observability.metrics import MetricsData
 from evidencetool.recommendation import recommend
@@ -48,13 +32,14 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class DiagnosisResult:
-    incident: Incident
+    incident: Incident | OperationalIncident
     evidence: list[Evidence]
     policy: Policy
     decision: Decision
     recommendation: str
     metrics: MetricsData
     authority: AuthorityMetadata | None = None
+    causality: CausalExplanation | None = None
 
 
 def diagnose(  # noqa: C901
@@ -63,6 +48,7 @@ def diagnose(  # noqa: C901
     context: dict[str, str],
     catalog: list[Situation] | None = None,
     execution: ExecutionContext | None = None,
+    causality_catalog: list[CausalRule] | None = None,
 ) -> DiagnosisResult:
     from evidencetool.providers.base import ProviderContext
     from evidencetool.providers.registry import get_provider, get_provider_trust, load_all_providers
@@ -73,12 +59,9 @@ def diagnose(  # noqa: C901
     m = MetricsData()
     start_total = time.time()
 
-    incident = Incident(id=f"inc_{uuid.uuid4().hex[:8]}", type=f"{target}_start_failure")
-
     observations = []
 
     # 1. Determine which provider namespaces are needed from the policy.
-    # Evidence IDs are typically "namespace.check_name" (e.g. "nginx.config_valid").
     needed_namespaces = set()
     for req in policy.required_evidence:
         parts = req.id.split(".")
@@ -122,8 +105,6 @@ def diagnose(  # noqa: C901
                     )
             observations += collected
         except CapabilityDenied as exc:
-            from datetime import datetime, timezone
-
             from evidencetool.models.observation import Observation
 
             failed_ids = [req.id for req in policy.required_evidence if req.id.startswith(f"{namespace}.")]
@@ -142,15 +123,12 @@ def diagnose(  # noqa: C901
                 )
         except Exception as exc:
             import traceback
-            from datetime import datetime, timezone
 
             from evidencetool.models.observation import Observation
 
             logger.error(f"Provider '{namespace}' execution failed: {exc}\n{traceback.format_exc()}")
 
-            # Emit a synthetic observation for every requested evidence in this namespace
             failed_ids = [req.id for req in policy.required_evidence if req.id.startswith(f"{namespace}.")]
-
             for req_id in failed_ids:
                 observations.append(
                     Observation(
@@ -186,12 +164,14 @@ def diagnose(  # noqa: C901
         m.integrity_violation = 1
         m.success = False
 
-    # 4. Decide
+    # 4. Correlation & Deterministic Causal Reasoning
     t0 = time.time()
     from evidencetool.decision.correlation import correlate_state
     from evidencetool.models.policy import PolicySchema
 
     state = correlate_state(evidence, catalog or [])
+    causality_explanation = reconstruct_causality(evidence, state, causality_catalog or [])
+
     if policy.schema == PolicySchema.V2_SITUATIONAL:
         decision = decide(state, policy)
     else:
@@ -221,15 +201,27 @@ def diagnose(  # noqa: C901
             probes_remaining=tracker.remaining,
         )
 
+    operational_incident = OperationalIncident(
+        incident_id=f"inc_{uuid.uuid4().hex[:8]}",
+        target=target,
+        observations=observations,
+        situations=state.situations,
+        causality=causality_explanation,
+        decision=decision,
+        policy=policy,
+        created_at=datetime.now(timezone.utc),
+        authority=authority_meta,
+    )
+
     m.total_duration = time.time() - start_total
 
     return DiagnosisResult(
-        incident=incident,
+        incident=operational_incident,
         evidence=evidence,
         policy=policy,
         decision=decision,
         recommendation=recommendation_text,
         metrics=m,
         authority=authority_meta,
+        causality=causality_explanation,
     )
-

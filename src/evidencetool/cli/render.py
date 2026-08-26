@@ -20,11 +20,21 @@ _STATUS_SYMBOL = {
 
 
 def to_contract_dict(result: DiagnosisResult) -> dict[str, typing.Any]:
-    res: dict[str, typing.Any] = {
-        "incident": {
+    from evidencetool.models.incident import OperationalIncident
+
+    if isinstance(result.incident, OperationalIncident):
+        incident_dict = {
+            "id": result.incident.incident_id,
+            "type": f"{result.incident.target}_operational_incident",
+        }
+    else:
+        incident_dict = {
             "id": result.incident.id,
             "type": result.incident.type,
-        },
+        }
+
+    res: dict[str, typing.Any] = {
+        "incident": incident_dict,
         "evidence": [e.to_dict() for e in result.evidence],
         "policy": {
             "action": result.policy.action,
@@ -35,6 +45,8 @@ def to_contract_dict(result: DiagnosisResult) -> dict[str, typing.Any]:
             "action": result.recommendation,
         },
     }
+    if result.causality is not None:
+        res["causality"] = result.causality.to_dict()
     if result.authority is not None:
         res["authority"] = {
             "caller_id": result.authority.caller_id,

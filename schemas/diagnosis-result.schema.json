@@ -84,6 +84,19 @@
         "probes_consumed": { "type": "integer" },
         "probes_remaining": { "type": ["integer", "null"] }
       }
+    },
+    "causality": {
+      "type": "object",
+      "required": ["status", "causal_chain", "propagated_symptoms", "precluded_hypotheses", "confidence"],
+      "properties": {
+        "status": { "enum": ["ROOT_CAUSE_IDENTIFIED", "ROOT_CAUSE_CONSTRAINED", "ROOT_CAUSE_UNKNOWN"] },
+        "primary_root_cause": { "type": ["string", "null"] },
+        "causal_chain": { "type": "array", "items": { "type": "string" } },
+        "propagated_symptoms": { "type": "array", "items": { "type": "string" } },
+        "precluded_hypotheses": { "type": "array", "items": { "type": "string" } },
+        "candidate_causes": { "type": "array", "items": { "type": "string" } },
+        "confidence": { "type": "string" }
+      }
     }
   }
 }

@@ -11,7 +11,7 @@ pipeline {
     agent any
  
     options {
-        timeout(time: 15, unit: 'MINUTES')
+        timeout(time: 45, unit: 'MINUTES')
         disableConcurrentBuilds()
     }
  
@@ -116,6 +116,20 @@ pipeline {
             // Runs on the host Docker daemon to test real Docker container lifecycle & diagnostics
             steps {
                 sh 'bash tests/e2e/run_docker_e2e.sh'
+            }
+        }
+
+        stage('E2E Data and Dependency Providers') {
+            // Requires Docker on the Jenkins node. The script owns all test containers and cleanup.
+            steps {
+                sh 'bash tests/e2e/run_data_e2e.sh'
+            }
+        }
+
+        stage('E2E Kubernetes Providers (Minikube)') {
+            // Requires minikube, kubectl and Docker on the Jenkins node.
+            steps {
+                sh 'bash tests/e2e/run_k8s_e2e.sh'
             }
         }
     }

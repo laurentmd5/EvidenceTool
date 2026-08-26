@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.0] - 2026-08-26
+### Added
+- **Deterministic Causal Reasoning Engine (`evidencetool.causality`)**: Reconstructs verifiable causal propagation chains from observed facts without guessing or probabilistic hallucinations.
+- **Tri-State Causal Evaluation (`CausalityStatus`)**: Explicit distinction between `ROOT_CAUSE_IDENTIFIED`, `ROOT_CAUSE_CONSTRAINED`, and `ROOT_CAUSE_UNKNOWN` with strict fail-closed safety under incomplete information.
+- **Declarative Causality Catalogs (`causality/`)**: Declarative rules (`causality/distributed.yaml`, `causality/kubernetes.yaml`) defining `PROPAGATES_TO` and `PRECLUDES` relations.
+- **Unified Operational Incident Model (`OperationalIncident`)**: Captures observations, situations, primary root cause, causal chain, propagated symptoms, and governance decision into a single explainable record.
+- **Agent SDK Causal Explainability**: Extended `AgentDiagnosisResult` and JSON output contract (`schemas/diagnosis-result.schema.json`) with `causality` metadata.
+- **Canonical Causal Test Suite (`tests/test_causality.py`)**: 5 comprehensive scenarios verifying single root causes, multi-layer cascades, and fail-closed ambiguity handling (202 tests passing 100%).
+
 ## [0.9.0] - 2026-08-25
 ### Added
 - **AI-Agent SDK & Safety Gateway (`evidencetool.agent`)**: Pure Python programmatic safety gateway providing `AgentSafetyGate`, `AgentDiagnosisRequest`, and `AgentDiagnosisResult` to evaluate autonomous AI agent actions before execution.

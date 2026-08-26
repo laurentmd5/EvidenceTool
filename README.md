@@ -1,8 +1,8 @@
-# EvidenceTool (V0.9 — AI-Agent Ready & Operational Reasoning Engine)
+# EvidenceTool (V1.0 — Deterministic Causal Operational Reasoning Engine)
 
 > EvidenceTool does not automate actions first. It makes operational decisions explainable first.
 
-**EvidenceTool** is a read-only, policy-aware operational reasoning and safety gateway that correlates infrastructure, application, data, and dependency signals to identify root causes and gate automated remediation.
+**EvidenceTool** is a read-only, policy-aware operational reasoning engine and safety gateway that reconstructs verifiable causal incident chains from multi-domain evidence and enforces safe remediation boundaries for autonomous AI agents and SRE teams.
 
 ---
 

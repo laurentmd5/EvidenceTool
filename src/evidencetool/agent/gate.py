@@ -11,9 +11,12 @@ from evidencetool.capability.loader import load_capability_policy
 from evidencetool.capability.models import (
     AuthorityMetadata,
     CallerIdentity,
+    CapabilityDenied,
     CapabilitySet,
     ExecutionContext,
 )
+from evidencetool.causality.loader import load_causal_catalog
+from evidencetool.causality.models import CausalRule
 from evidencetool.diagnose import diagnose
 from evidencetool.diagnostic.loader import load_catalog
 from evidencetool.models.correlation import Situation
@@ -37,8 +40,10 @@ class AgentSafetyGate:
         capability_hash: str | None = None,
         catalog: str | Path | list[Situation] | None = None,
         default_policy: str | Path | Policy | None = None,
+        causality_catalog: str | Path | list[CausalRule] | None = None,
     ) -> None:
         self._capabilities: CapabilitySet
+        self._explicit_capability_policy = capability_policy is not None
         if isinstance(capability_policy, CapabilitySet):
             self._capabilities = capability_policy
         elif capability_policy is not None:
@@ -53,6 +58,14 @@ class AgentSafetyGate:
             self._catalog = load_catalog(str(catalog))
         else:
             self._catalog = None
+
+        self._causality_catalog: list[CausalRule] | None
+        if isinstance(causality_catalog, list):
+            self._causality_catalog = causality_catalog
+        elif causality_catalog is not None:
+            self._causality_catalog = load_causal_catalog(str(causality_catalog))
+        else:
+            self._causality_catalog = None
 
         self._default_policy: Policy | None
         if isinstance(default_policy, Policy):
@@ -90,7 +103,9 @@ class AgentSafetyGate:
         # Enforce SSH destination confinement (F-01)
         ssh_host = request.context.get("host")
         if ssh_host:
-            self._capabilities.require_network("ssh_transport", str(ssh_host))
+            if not self._explicit_capability_policy:
+                raise CapabilityDenied("SSH transport requires an explicit capability policy.")
+            self._capabilities.require_ssh_transport(str(ssh_host))
 
         # Run deterministic diagnosis
         # Ensure context values are strings for ProviderContext compatibility
@@ -102,6 +117,7 @@ class AgentSafetyGate:
             context=str_context,
             catalog=self._catalog,
             execution=exec_ctx,
+            causality_catalog=self._causality_catalog,
         )
 
         # Extract root cause and supporting evidence
@@ -131,6 +147,14 @@ class AgentSafetyGate:
             probes_remaining=tracker.remaining,
         )
 
+        # Extract causality explanation
+        causality = raw_result.causality
+        causality_status = causality.status.value if causality else "ROOT_CAUSE_IDENTIFIED"
+        primary_root = causality.primary_root_cause if causality else (root_cause[0] if root_cause else None)
+        causal_chain = causality.causal_chain if causality else root_cause
+        propagated_symptoms = causality.propagated_symptoms if causality else []
+        precluded_hypotheses = causality.precluded_hypotheses if causality else []
+
         return AgentDiagnosisResult(
             is_allowed=raw_result.decision.status == DecisionStatus.ALLOW,
             status=raw_result.decision.status.value,
@@ -140,5 +164,10 @@ class AgentSafetyGate:
             supporting_evidence=supporting,
             recommendation=raw_result.recommendation,
             authority=authority,
+            causality_status=causality_status,
+            primary_root_cause=primary_root,
+            causal_chain=causal_chain,
+            propagated_symptoms=propagated_symptoms,
+            precluded_hypotheses=precluded_hypotheses,
             raw_diagnosis=raw_result,
         )

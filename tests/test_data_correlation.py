@@ -132,8 +132,42 @@ def test_remote_ssh_datastore_probes_handle_remote_cli_correctly():
         mock_redis_cmd.side_effect = [
             Mock(ran=True, returncode=0, stdout="", stderr=""),  # nc -z port reachable
             Mock(ran=True, returncode=0, stdout="PONG", stderr=""),  # redis-cli ping
+            Mock(ran=True, returncode=0, stdout="used_memory:1000\nmaxmemory:10000\n", stderr=""),
+            Mock(ran=True, returncode=0, stdout="role:master\nmaster_link_status:up\n", stderr=""),
         ]
         obs_redis = p_redis.collect(ProviderContext({"target_host": "10.0.1.6", "port": "6379", "host": "cache-server-01"}))
         redis_map = {o.id: o for o in obs_redis}
         assert redis_map["redis.reachable"].value["status"] == "PASS"
         assert redis_map["redis.ping"].value["status"] == "PASS"
+        assert redis_map["redis.memory_pressure"].value["status"] == "PASS"
+        assert redis_map["redis.role"].value["status"] == "PASS"
+        assert redis_map["redis.latency_ms"].value["status"] == "PASS"
+
+
+def test_remote_redis_password_is_never_sent_in_command_arguments():
+    provider = RedisProvider()
+    with patch("evidencetool.providers.redis.run_command") as mock_command:
+        mock_command.return_value = Mock(ran=True, returncode=0, stdout="", stderr="")
+        observations = provider.collect(
+            ProviderContext(
+                {
+                    "target_host": "10.0.1.6",
+                    "port": "6379",
+                    "host": "cache-server-01",
+                    "password": "super-secret",
+                }
+            )
+        )
+
+    assert all("super-secret" not in str(call) for call in mock_command.call_args_list)
+    assert {observation.id for observation in observations} == {
+        "redis.reachable",
+        "redis.auth",
+        "redis.ping",
+        "redis.latency_ms",
+        "redis.memory_pressure",
+        "redis.role",
+    }
+    assert observations[0].id == "redis.reachable"
+    assert observations[0].value["status"] == "PASS"
+    assert all(observation.value["status"] == "UNKNOWN" for observation in observations[1:])

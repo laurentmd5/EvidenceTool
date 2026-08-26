@@ -36,4 +36,9 @@ class AgentDiagnosisResult:
     supporting_evidence: list[str]
     recommendation: str
     authority: AuthorityMetadata
-    raw_diagnosis: DiagnosisResult = field(repr=False)
+    causality_status: str = "ROOT_CAUSE_IDENTIFIED"
+    primary_root_cause: str | None = None
+    causal_chain: list[str] = field(default_factory=list)
+    propagated_symptoms: list[str] = field(default_factory=list)
+    precluded_hypotheses: list[str] = field(default_factory=list)
+    raw_diagnosis: DiagnosisResult = field(default=None, repr=False)  # type: ignore

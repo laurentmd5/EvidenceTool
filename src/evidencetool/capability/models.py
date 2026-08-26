@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 from ipaddress import ip_address, ip_network
+from typing import Any
 
 
 class CapabilityDenied(PermissionError):
@@ -55,6 +56,17 @@ class AuthorityMetadata:
     probes_budget: int | None = None
     probes_consumed: int = 0
     probes_remaining: int | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "caller_id": self.caller_id,
+            "caller_type": self.caller_type,
+            "session_id": self.session_id,
+            "policy_fingerprint": self.policy_fingerprint,
+            "probes_budget": self.probes_budget,
+            "probes_consumed": self.probes_consumed,
+            "probes_remaining": self.probes_remaining,
+        }
 
 
 @dataclass(frozen=True)
@@ -142,6 +154,10 @@ class CapabilitySet:
             raise CapabilityDenied(f"Network target '{target}' is not authorized.")
         if port is not None and not self.network.allows_port(port):
             raise CapabilityDenied(f"Network port '{port}' is not authorized.")
+
+    def require_ssh_transport(self, target: str) -> None:
+        """Authorize an SSH destination using the explicit network policy."""
+        self.require_network("ssh_transport", target)
 
     def require_kubernetes(self, operation: str, namespace: str) -> None:
         self.probe_tracker.record_probe()

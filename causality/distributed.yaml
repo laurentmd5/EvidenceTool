@@ -1,0 +1,61 @@
+# EvidenceTool Declarative Causality Catalog — Distributed Cascades
+# Format: Version 1.0
+
+causal_rules:
+  # 1. Redis Memory Exhaustion -> Database Overload -> Upstream Latency -> HTTP 504
+  - id: REDIS_OOM_TO_DB_OVERLOAD
+    source: REDIS_OOM_MAXMEMORY
+    target: DATABASE_LATENCY_DEGRADATION
+    relation: PROPAGATES_TO
+    conditions:
+      redis.memory_pressure: FAIL
+    description: "Redis memory saturation causes cache miss surge and database query overload"
+    is_root_cause_candidate: true
+
+  - id: DB_OVERLOAD_TO_API_LATENCY
+    source: DATABASE_LATENCY_DEGRADATION
+    target: UPSTREAM_LATENCY_DEGRADATION
+    relation: PROPAGATES_TO
+    conditions:
+      dependency.latency_ms: FAIL
+    description: "Database latency overload propagates to upstream API response times"
+    is_surface_symptom: false
+
+  - id: API_LATENCY_TO_HTTP_504
+    source: UPSTREAM_LATENCY_DEGRADATION
+    target: HTTP_504_GATEWAY_TIMEOUT
+    relation: PROPAGATES_TO
+    conditions:
+      dependency.http_status: FAIL
+    description: "API latency exceeding gateway timeout causes HTTP 504 Gateway Timeout"
+    is_surface_symptom: true
+
+  # 2. PostgreSQL Connection Pool Exhaustion -> Database Connectivity Failure -> HTTP 500
+  - id: POSTGRES_POOL_TO_DB_CONNECTIVITY_FAIL
+    source: POSTGRES_POOL_EXHAUSTED
+    target: DATABASE_CONNECTIVITY_FAILURE
+    relation: PROPAGATES_TO
+    conditions:
+      postgres.pool_exhaustion: FAIL
+    description: "PostgreSQL pool exhaustion prevents new application connections"
+    is_root_cause_candidate: true
+
+  - id: DB_CONNECTIVITY_TO_HTTP_500
+    source: DATABASE_CONNECTIVITY_FAILURE
+    target: HTTP_500_INTERNAL_SERVER_ERROR
+    relation: PROPAGATES_TO
+    conditions:
+      dependency.http_status: FAIL
+    description: "Inability to query database produces application 500 internal errors"
+    is_surface_symptom: true
+
+  # 3. Upstream Microservice Outage
+  - id: UPSTREAM_OUTAGE_TO_CIRCUIT_BREAKER
+    source: UPSTREAM_MICROSERVICE_OUTAGE
+    target: CIRCUIT_BREAKER_TRIGGERED
+    relation: PROPAGATES_TO
+    conditions:
+      dependency.circuit_breaker: FAIL
+    description: "Remote microservice outage triggers local circuit breaker or throttling"
+    is_root_cause_candidate: true
+    is_surface_symptom: false

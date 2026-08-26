@@ -1,7 +1,7 @@
 # EvidenceTool — PRODUCT_CONTRACT.md
 
-**Version:** 9.0 (V0.9 AI-Agent Safety Gateway)
-**Status:** Active specification for V0.9 AI-Agent Safety Gateway & Operational Reasoning
+**Version:** 10.0 (V1.0 Deterministic Causal Operational Reasoning Engine)
+**Status:** Active specification for V1.0 Deterministic Causal Operational Reasoning Engine & Incident Model
 **Scope:** This document defines the minimal functional and architectural contract that the EvidenceTool codebase must respect.
 
 ---
@@ -568,3 +568,26 @@ Automated and AI-agent callers operate under strict resource and probe limits:
 
 ### 21.3 Capability Anti-Tampering
 Capability policies can be pinned to a cryptographic SHA-256 digest. Any modification of the policy content by an untrusted or prompt-injected caller is immediately rejected prior to execution.
+
+---
+
+## 22. Deterministic Causal Operational Reasoning & Incident Model (V1.0 Contract)
+
+### 22.1 The 5 Causal Invariants
+1. **Symptoms are Never Root Causes**: Surface effects (`HTTP 504`, `TCP timeout`, `High Latency`) cannot be designated as primary root causes.
+2. **Healthy Dependencies Preclude Hypotheses**: Verified healthy signals explicitly refute competing outage hypotheses (`PRECLUDED_HYPOTHESES`).
+3. **Directly Observed Failures Take Precedence**: Direct component failures (`redis.memory_pressure: FAIL`, `postgres.pool_exhaustion: FAIL`, `k8s.container_oom_killed: FAIL`) supersede indirect latency degradation.
+4. **Declarative Causal Catalogs**: All valid causal propagation paths must be declared in YAML catalogs (`causality/*.yaml`); the engine never invents causal relations dynamically.
+5. **Tri-State Deterministic Outcome (Fail-Closed)**:
+   - `ROOT_CAUSE_IDENTIFIED`: Sufficient evidence + valid causal chain + zero contradictions.
+   - `ROOT_CAUSE_CONSTRAINED`: Multiple candidate causes compatible with observations without sufficient evidence to disambiguate.
+   - `ROOT_CAUSE_UNKNOWN`: Incomplete observations $\to$ **Fail-closed (`HUMAN_REVIEW` / `BLOCK`), zero guessing**.
+
+### 22.2 Unified Operational Incident Model
+Operational reasoning culminates in a typed `OperationalIncident` uniting:
+- `incident_id`: Globally unique incident identifier.
+- `observations`: Verified raw facts collected across all domains.
+- `situations`: Formally matched signatures.
+- `causality`: Primary root cause, causal propagation chain, surface symptoms, and precluded hypotheses.
+- `decision`: Governance policy verdict (`BLOCK > HUMAN_REVIEW > ALLOW`).
+- `authority`: Caller identity, quotas, and capability session tracing.

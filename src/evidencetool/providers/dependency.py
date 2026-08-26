@@ -71,6 +71,12 @@ def _sanitize_url(raw_url: str) -> str:
         return raw_url
 
 
+def _sanitize_error(error: str | None, raw_url: str) -> str | None:
+    if error is None:
+        return None
+    return error.replace(raw_url, _sanitize_url(raw_url))
+
+
 @provider("dependency")
 class DependencyProvider:
     def collect(self, context: ProviderContext) -> list[Observation]:
@@ -128,6 +134,10 @@ class DependencyProvider:
             ],
             timeout=timeout + 2,
             host=host,
+            display_args=[
+                "curl", "-s", "-o", "/dev/null", "-w", "%{http_code}:%{time_total}",
+                "--connect-timeout", str(int(timeout)), "-k", _sanitize_url(url),
+            ],
         )
 
         if res.ran and res.returncode == 0 and ":" in res.stdout:
@@ -140,7 +150,7 @@ class DependencyProvider:
             raw_latency_ms = 0.0
             error = res.stderr.strip() if res.ran else res.error
 
-        return self._build_observations(url, code, raw_latency_ms, sla_budget_ms, host, error)
+        return self._build_observations(url, code, raw_latency_ms, sla_budget_ms, host, _sanitize_error(error, url))
 
     def _probe_local(
         self, scheme: str, target_host: str, port: int, http_path: str, url: str, timeout: float, sla_budget_ms: float
@@ -169,7 +179,7 @@ class DependencyProvider:
             raw_latency_ms = (time.perf_counter() - start_t) * 1000.0
             error = str(e)
 
-        return self._build_observations(url, code, raw_latency_ms, sla_budget_ms, None, error)
+        return self._build_observations(url, code, raw_latency_ms, sla_budget_ms, None, _sanitize_error(error, url))
 
     def _probe_endpoint(
         self,

@@ -15,6 +15,7 @@ import os
 import shlex
 import shutil
 import subprocess
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 
@@ -27,7 +28,12 @@ class CommandResult:
     error: str | None = None  # populated when `ran` is False
 
 
-def run_command(args: list[str], timeout: float = 5.0, host: str | None = None) -> CommandResult:
+def run_command(
+    args: list[str],
+    timeout: float = 5.0,
+    host: str | None = None,
+    display_args: Sequence[str] | None = None,
+) -> CommandResult:
     # If host is provided, wrap in ssh
     actual_args = args
     if host:
@@ -73,9 +79,10 @@ def run_command(args: list[str], timeout: float = 5.0, host: str | None = None) 
             error=f"command not found: {actual_args[0]}",
         )
     except subprocess.TimeoutExpired:
+        safe_args = display_args or actual_args
         return CommandResult(
             ran=False, returncode=None, stdout="", stderr="",
-            error=f"command timed out after {timeout}s: {' '.join(actual_args)}",
+            error=f"command timed out after {timeout}s: {' '.join(safe_args)}",
         )
     except OSError as exc:
         return CommandResult(

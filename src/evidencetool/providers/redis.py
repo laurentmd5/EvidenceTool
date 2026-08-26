@@ -372,54 +372,105 @@ class RedisProvider:
     def _execute_redis_remote(
         self, target_host: str, port: int, password: str, host: str, timeout: float
     ) -> list[Observation]:
-        cmd = ["redis-cli", "-h", target_host, "-p", str(port)]
+        base_cmd = ["redis-cli", "-h", target_host, "-p", str(port), "--no-auth-warning"]
         if password:
-            cmd.extend(["-a", password])
-        cmd.append("ping")
-        res = run_command(cmd, host=host, timeout=timeout + 1)
-        if not res.ran:
-            return [
-                Observation(
-                    id="redis.ping",
-                    source="redis",
-                    category="datastore",
-                    collector=COLLECTOR,
-                    method="PING",
-                    value={"status": "UNKNOWN", "target": target_host, "port": port},
-                    message="Remote Redis inspection over SSH requires redis-cli on target host",
-                    observed_at=_now(),
-                    host=host,
-                )
-            ]
-        stdout = res.stdout.strip()
-        stderr = res.stderr.strip()
-        if res.returncode == 0 and "PONG" in stdout:
-            return [
-                Observation(
-                    id="redis.ping",
-                    source="redis",
-                    category="datastore",
-                    collector=COLLECTOR,
-                    method="PING",
-                    value={"status": "PASS", "response": stdout},
-                    message=f"Redis PING succeeded over SSH ({stdout})",
-                    observed_at=_now(),
-                    host=host,
-                )
-            ]
-        return [
-            Observation(
-                id="redis.ping",
-                source="redis",
-                category="datastore",
-                collector=COLLECTOR,
-                method="PING",
-                value={"status": "FAIL", "failure": "PING_FAILED", "error": stderr or stdout},
-                message=f"Redis PING failed over SSH: {stderr or stdout}",
-                observed_at=_now(),
-                host=host,
+            return self._remote_auth_required_observations(target_host, port, host)
+
+        start = time.perf_counter()
+        ping_res = run_command(base_cmd + ["ping"], host=host, timeout=timeout + 1)
+        latency_ms = round((time.perf_counter() - start) * 1000.0, 2)
+        info_memory_res = run_command(base_cmd + ["info", "memory"], host=host, timeout=timeout + 1)
+        info_replication_res = run_command(base_cmd + ["info", "replication"], host=host, timeout=timeout + 1)
+
+        observations: list[Observation] = []
+        ping_error = ping_res.stderr.strip() or ping_res.stdout.strip() or ping_res.error or "remote command failed"
+        if ping_res.ran and ping_res.returncode == 0 and "PONG" in ping_res.stdout:
+            ping_value: dict[str, Any] = {"status": "PASS", "response": ping_res.stdout.strip()}
+            ping_message = f"Redis PING succeeded over SSH ({ping_res.stdout.strip()})"
+        elif not ping_res.ran:
+            ping_value = {"status": "UNKNOWN", "failure": "PROBE_ERROR"}
+            ping_message = f"Could not execute remote Redis PING: {ping_error}"
+        else:
+            ping_value = {"status": "FAIL", "failure": "PING_FAILED", "error": ping_error}
+            ping_message = f"Redis PING failed over SSH: {ping_error}"
+        observations.append(self._remote_observation("redis.ping", "PING", ping_value, ping_message, host))
+
+        latency_status = "PASS" if ping_res.ran else "UNKNOWN"
+        observations.append(
+            self._remote_observation(
+                "redis.latency_ms",
+                "PING_LATENCY",
+                {"status": latency_status, "latency_ms": latency_ms},
+                f"Remote Redis PING latency is {latency_ms}ms",
+                host,
             )
+        )
+
+        observations.extend(self._remote_info_observations(info_memory_res, info_replication_res, target_host, port, host))
+        return observations
+
+    def _remote_auth_required_observations(self, target_host: str, port: int, host: str) -> list[Observation]:
+        message = "Remote Redis probes requiring authentication are unavailable without exposing the password in a command argument"
+        return [
+            self._remote_observation(
+                "redis.auth", "AUTH", {"status": "UNKNOWN", "failure": "SECURE_AUTH_UNAVAILABLE"}, message, host
+            ),
+            self._remote_observation(
+                "redis.ping", "PING", {"status": "UNKNOWN", "failure": "AUTH_REQUIRED"}, message, host
+            ),
+            self._remote_observation(
+                "redis.latency_ms", "PING_LATENCY", {"status": "UNKNOWN"}, message, host
+            ),
+            self._remote_observation(
+                "redis.memory_pressure", "INFO memory", {"status": "UNKNOWN", "failure": "AUTH_REQUIRED"}, message, host
+            ),
+            self._remote_observation(
+                "redis.role", "INFO replication", {"status": "UNKNOWN", "failure": "AUTH_REQUIRED"}, message, host
+            ),
         ]
+
+    def _remote_info_observations(
+        self, memory_result: Any, replication_result: Any, target_host: str, port: int, host: str
+    ) -> list[Observation]:
+        if not memory_result.ran or memory_result.returncode != 0:
+            memory_value: dict[str, Any] = {"status": "UNKNOWN", "failure": "INFO_UNAVAILABLE"}
+            memory_message = "Remote Redis memory information is unavailable"
+        else:
+            info = self._parse_info(memory_result.stdout)
+            used_mem = int(info.get("used_memory", 0))
+            max_mem = int(info.get("maxmemory", 0))
+            memory_value = {"status": "PASS", "used_memory_mb": round(used_mem / (1024.0 * 1024.0), 2), "maxmemory_mb": round(max_mem / (1024.0 * 1024.0), 2)}
+            memory_message = "Remote Redis memory information collected over SSH"
+
+        if not replication_result.ran or replication_result.returncode != 0:
+            role_value: dict[str, Any] = {"status": "UNKNOWN", "failure": "INFO_UNAVAILABLE"}
+            role_message = "Remote Redis replication information is unavailable"
+        else:
+            info = self._parse_info(replication_result.stdout)
+            role_value = {"status": "PASS", "role": info.get("role", "unknown"), "link_status": info.get("master_link_status", "unknown")}
+            role_message = "Remote Redis replication information collected over SSH"
+
+        return [
+            self._remote_observation("redis.memory_pressure", "INFO memory", memory_value, memory_message, host),
+            self._remote_observation("redis.role", "INFO replication", role_value, role_message, host),
+        ]
+
+    def _remote_observation(
+        self, evidence_id: str, method: str, value: dict[str, Any], message: str, host: str
+    ) -> Observation:
+        return Observation(
+            id=evidence_id,
+            source="redis",
+            category="datastore",
+            collector=COLLECTOR,
+            method=method,
+            value=value,
+            message=message,
+            observed_at=_now(),
+            host=host,
+            execution_scope="remote",
+            transport_status="executed",
+        )
 
     def _execute_redis_local(
         self,

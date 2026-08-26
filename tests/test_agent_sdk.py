@@ -240,3 +240,19 @@ def test_agent_safety_gate_unauthorized_ssh_host_rejected():
 
     with pytest.raises(CapabilityDenied, match="Network target '192.168.1.50' is not authorized"):
         gate.evaluate(request)
+
+
+def test_agent_safety_gate_requires_explicit_capability_for_ssh():
+    gate = AgentSafetyGate(
+        catalog="catalogs/nginx.yaml",
+        default_policy="policies/nginx.yaml",
+    )
+    request = AgentDiagnosisRequest(
+        agent_id="unconfined-agent",
+        action="restart_nginx",
+        target="nginx",
+        context={"host": "prod-web-01", "service": "nginx"},
+    )
+
+    with pytest.raises(CapabilityDenied, match="explicit capability policy"):
+        gate.evaluate(request)

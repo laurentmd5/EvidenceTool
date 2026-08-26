@@ -1,0 +1,32 @@
+# EvidenceTool Declarative Causality Catalog — Kubernetes
+# Format: Version 1.0
+
+causal_rules:
+  # 1. Container OOM -> Container CrashLoopBackOff -> Pod Not Ready
+  - id: K8S_OOM_TO_CRASHLOOP
+    source: K8S_OOM_KILLED
+    target: K8S_CRASH_LOOP_BACKOFF
+    relation: PROPAGATES_TO
+    conditions:
+      k8s.container_oom_killed: FAIL
+    description: "Linux OOM killer termination (exit code 137) causes Kubernetes CrashLoopBackOff"
+    is_root_cause_candidate: true
+
+  - id: K8S_CRASHLOOP_TO_POD_UNREADY
+    source: K8S_CRASH_LOOP_BACKOFF
+    target: K8S_POD_NOT_READY
+    relation: PROPAGATES_TO
+    conditions:
+      k8s.containers_ready: FAIL
+    description: "CrashLooping container prevents Pod readiness probe from passing"
+    is_surface_symptom: true
+
+  # 2. Node Pressure -> Pod Scheduling / Failure
+  - id: K8S_NODE_PRESSURE_TO_POD_NOT_SCHEDULED
+    source: K8S_NODE_NOT_READY_OR_PRESSURE
+    target: K8S_INSUFFICIENT_CLUSTER_RESOURCES
+    relation: PROPAGATES_TO
+    conditions:
+      k8s.node_ready: FAIL
+    description: "Node memory/disk pressure causes unschedulable pod states"
+    is_root_cause_candidate: true
