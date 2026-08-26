@@ -9,6 +9,7 @@ implementation; nothing here assumes it is the final policy engine
 from __future__ import annotations
 
 import math
+import re
 from pathlib import Path
 from typing import Any
 
@@ -31,12 +32,14 @@ def load_policy(path: str | Path) -> Policy:
 
 def _parse_evidence_requirement(item: object, index: int) -> EvidenceRequirement:
     if isinstance(item, str):
+        if not re.fullmatch(r"[a-z][a-z0-9_-]*\.[a-z][a-z0-9_.-]*", item):
+            raise ValueError(f"Invalid policy: required_evidence[{index}] needs a valid dotted 'id'.")
         return EvidenceRequirement(id=item, on_unknown=DEFAULT_ON_UNKNOWN)
     if not isinstance(item, dict):
         raise ValueError(f"Invalid policy: required_evidence[{index}] must be a string or mapping.")
 
     evidence_id = item.get("id")
-    if not isinstance(evidence_id, str) or not evidence_id:
+    if not isinstance(evidence_id, str) or not re.fullmatch(r"[a-z][a-z0-9_-]*\.[a-z][a-z0-9_.-]*", evidence_id):
         raise ValueError(f"Invalid policy: required_evidence[{index}] needs a non-empty 'id'.")
     try:
         on_unknown = OnUnknown(item.get("on_unknown", DEFAULT_ON_UNKNOWN.value))
@@ -83,6 +86,8 @@ def load_policy_from_string(text: str) -> Policy:
     for field in ("version", "action", "risk"):
         if field not in raw:
             raise ValueError(f"Invalid policy: missing required field '{field}'.")
+    if not isinstance(raw["action"], str) or not raw["action"].strip():
+        raise ValueError("Invalid policy: 'action' must be a non-empty string.")
 
     required_evidence_raw = raw.get("required_evidence", [])
     if not isinstance(required_evidence_raw, list):
@@ -92,6 +97,9 @@ def load_policy_from_string(text: str) -> Policy:
         _parse_evidence_requirement(item, index)
         for index, item in enumerate(required_evidence_raw)
     ]
+    evidence_ids = [requirement.id for requirement in required_evidence]
+    if len(evidence_ids) != len(set(evidence_ids)):
+        raise ValueError("Semantic Policy Conflict: required evidence IDs must be unique.")
 
     schema_val = raw.get("schema", PolicySchema.V1_LEGACY.value)
     try:

@@ -1,7 +1,7 @@
 # Rapport d'audit sécurité et conception — EvidenceTool
 
-**Date :** 26 août 2026  
-**Version de référence :** `pyproject.toml` déclare `0.5.0`  
+**Date de mise à jour :** 26 août 2026  
+**Version de référence :** `pyproject.toml` déclare `1.0.1`  
 **Périmètre :** code Python sous `src/evidencetool/`, tests, policies/catalogues YAML, packaging et documentation de sécurité  
 **Nature :** revue statique, analyse des chemins d'exécution et contrôles outillés locaux
 
@@ -9,16 +9,14 @@
 
 EvidenceTool possède de bonnes bases de sécurité : exécution subprocess sans `shell=True`, séparation providers/evidence/decision/recommendation, policies fail-closed sur plusieurs preuves critiques, validation de namespace des observations, capabilities réseau/Kubernetes, hash SHA-256 des plugins explicitement approuvés et tests dédiés aux injections SSH.
 
-L'audit identifie cependant plusieurs risques importants avant usage comme passerelle de sécurité de production :
+La réévaluation du code après les correctifs montre que SEC-01 à SEC-03, SEC-06, DES-01 et DES-03 sont corrigés. Les risques encore ouverts ou partiellement traités sont les suivants :
 
-- **Risque élevé :** les sondes HTTPS de dépendances désactivent la validation des certificats (`CERT_NONE` localement et `curl -k` à distance). Un attaquant capable d'intercepter le trafic peut falsifier le résultat de diagnostic.
-- **Risque élevé conditionnel :** le registre importe automatiquement les modules Python déposés dans le package avant qu'un contrôle de confiance ne puisse les empêcher de s'exécuter. Une écriture non autorisée dans le répertoire de l'application devient une possibilité d'exécution de code au chargement.
-- **Risque moyen :** le SDK agent accepte un `policy_path` fourni par la requête et ne vérifie pas qu'il correspond à la policy par défaut, à une allowlist ou à une signature. Un agent qui peut choisir ce chemin peut sélectionner une policy plus permissive.
-- **Risque moyen :** les valeurs de policy, catalogues et contexte sont insuffisamment validées sémantiquement; des configurations incohérentes peuvent produire des décisions bloquantes, des diagnostics faux ou une confiance excessive dans les signatures.
-- **Risque moyen :** des données de diagnostic sensibles ou internes sont conservées dans les observations JSON et messages; la redaction est partielle et dépend de motifs.
-- **Défauts de conception :** budget de probes mutable et cumulatif sur une instance de gate, défauts permissifs pour plusieurs capabilities, confusion `FAIL`/`UNKNOWN` dans Kubernetes et versionnement contradictoire.
+- **Risque moyen résiduel :** la redaction centralisée protège désormais la sortie JSON, mais elle reste fondée sur des motifs et les données internes peuvent encore contenir des informations sensibles.
+- **Risque moyen résiduel :** la validation sémantique des policies couvre désormais les types, identifiants, doublons, âges et conflits allow/blocked_by, mais pas toutes les références catalogue/policy ni la signature des policies de production.
+- **Risque moyen :** les valeurs par défaut des capabilities réseau et Kubernetes restent permissives pour un appelant qui construit directement un `ExecutionContext`.
+- **Risque de gouvernance :** le lockfile/SBOM de production et la cohérence complète des documents doivent encore être vérifiés dans un environnement propre.
 
-**Conclusion globale :** la posture est prometteuse pour un outil d'observation, mais le statut « safety gateway » exige de corriger en priorité la validation TLS, le chargement des providers et la gouvernance des policies. Bandit et Ruff ne détectent pas ces défauts logiques.
+**Conclusion globale mise à jour :** les barrières prioritaires précédemment identifiées sont corrigées dans le code courant. Le statut « safety gateway » reste conditionné à la gouvernance des policies, aux defaults des capabilities utilisées directement et à la chaîne d'approvisionnement.
 
 ## 2. Méthode et limites
 
@@ -33,103 +31,103 @@ Les niveaux utilisés sont : **Critique**, **Élevé**, **Moyen**, **Faible**, o
 
 ## 3. Constats prioritaires
 
-### SEC-01 — Validation TLS désactivée pour les dépendances HTTPS
+### SEC-01 — CORRIGÉ — Validation TLS des dépendances HTTPS
 
 **Gravité : Élevée**  
 **Confiance : élevée**  
 **Composant :** `src/evidencetool/providers/dependency.py`
 
-Dans le chemin local HTTPS, `ssl.create_default_context()` est immédiatement suivi de `check_hostname = False` et `verify_mode = ssl.CERT_NONE`. Dans le chemin distant, la commande curl utilise `-k`. Le diagnostic accepte donc un certificat auto-signé, expiré ou présenté par un intermédiaire malveillant.
+Le défaut précédent a été corrigé. Le chemin local utilise désormais `CERT_REQUIRED` et la vérification du nom d'hôte. Le chemin distant n'ajoute `-k` que lorsque `allow_insecure_tls` est explicitement activé par la capability réseau.
 
 **Impact :** un MITM ou un proxy compromis peut faire apparaître une dépendance amont comme disponible, saine ou conforme au SLA. Pour une décision `ALLOW`, cela compromet la fiabilité de la preuve et peut conduire l'appelant à entreprendre une remédiation injustifiée.
 
-**Remédiation :** valider les certificats et le nom d'hôte par défaut; rendre l'exception explicite dans la policy avec une capability dédiée, un CA configurable et une trace d'exception. Supprimer `-k` du chemin distant. Ajouter des tests qui rejettent un certificat invalide et vérifient le comportement avec un CA de confiance contrôlé.
+**Vérification :** `tests/test_dependency_provider.py` couvre le TLS strict par défaut et l'exception explicitement gouvernée. **Risque résiduel :** `allow_insecure_tls` reste disponible et doit être interdit dans les capabilities de production.
 
-### SEC-02 — Import automatique de providers avant contrôle de confiance
+### SEC-02 — CORRIGÉ — Import automatique de providers avant contrôle de confiance
 
 **Gravité : Élevée conditionnelle**  
 **Confiance : élevée**  
 **Composant :** `src/evidencetool/providers/registry.py`
 
-`diagnose()` appelle `load_all_providers()` sans désactiver les modules expérimentaux. Le registre parcourt tous les modules Python présents dans le package et les importe. Le contrôle `require_trusted_providers` intervient ensuite, au moment de l'exécution du provider, et non avant l'import Python. Le mécanisme SHA-256 existe pour `load_approved_plugins()`, mais il n'est pas le chemin imposé par la découverte automatique.
+Le registre importe désormais une liste statique de providers built-in vérifiés. Les providers externes ne sont plus découverts automatiquement; ils doivent passer par `load_approved_plugins()` et une vérification SHA-256 avant import.
 
-**Impact :** si un tiers peut déposer ou remplacer un `.py` dans `src/evidencetool/providers`, son code top-level s'exécute au démarrage, même si le provider est ultérieurement refusé comme non fiable. Cela peut mener à exécution de code avec les privilèges du processus, lecture de secrets ou altération du diagnostic.
+**Impact historique :** ce risque existait lorsque la découverte parcourait automatiquement le package. Il est désormais réduit par l'import statique des built-ins; une altération d'un built-in installé reste un risque général d'intégrité de l'environnement.
 
 **Remédiation :** désactiver la découverte automatique par défaut pour les agents; charger uniquement une liste statique de built-ins; exiger un manifeste signé ou hashé avant tout import externe; vérifier propriétaire, permissions et emplacement des modules. Ne pas considérer le contrôle de confiance post-import comme une barrière d'exécution.
 
-### SEC-03 — Policy sélectionnable par la requête de l'agent
+### SEC-03 — CORRIGÉ — Policy sélectionnable par la requête de l'agent
 
 **Gravité : Moyenne à élevée selon l'intégration**  
 **Confiance : élevée**  
 **Composant :** `src/evidencetool/agent/gate.py`, `src/evidencetool/agent/models.py`
 
-La requête contient `policy_path`. Si cette valeur est présente, `AgentSafetyGate.evaluate()` charge cette policy; elle prime sur `_default_policy`. Il n'existe pas de vérification de chemin autorisé, d'empreinte attendue, de signature, ni de contrôle que `policy.action` corresponde à `request.action`.
+Le gate donne désormais priorité à la policy par défaut configurée. `policy_path` n'est utilisé qu'en l'absence de policy par défaut et l'action de la policy est comparée à `request.action`; un mismatch est rejeté.
 
-**Impact :** un agent ou un appelant ayant accès à l'API peut sélectionner une policy permissive, une policy V1 legacy ou une policy ne couvrant pas l'action demandée. Le résultat `is_allowed` ne doit alors pas être interprété comme l'autorisation de `request.action`.
+**Impact historique :** avant le correctif, un appelant pouvait sélectionner une policy permissive ou incohérente avec l'action. Le contrôle courant empêche ce scénario lorsque le gate dispose d'une policy par défaut et rejette les mismatches d'action.
 
-**Remédiation :** interdire `policy_path` dans les requêtes d'agents non administratifs; utiliser une policy immuable configurée par le gate; sinon appliquer une allowlist de chemins/empreintes, vérifier `policy.action == request.action`, imposer V2 pour les agents et journaliser l'identité de la policy effectivement utilisée.
+**Vérification :** la policy par défaut est prioritaire et `policy.action` est comparée à `request.action`. **Amélioration restante :** ajouter une allowlist/empreinte pour le fallback et imposer V2 selon le profil de déploiement.
 
-### SEC-04 — Absence de validation sémantique des policies et catalogues
+### SEC-04 — PARTIELLEMENT CORRIGÉ — Validation sémantique des policies et catalogues
 
 **Gravité : Moyenne**  
 **Confiance : élevée**  
 **Composants :** `src/evidencetool/policy/loader.py`, `src/evidencetool/diagnostic/loader.py`, `src/evidencetool/models/policy.py`
 
-Les loaders vérifient la structure YAML et les enums, mais n'imposent pas plusieurs invariants essentiels : identifiants au format attendu, absence de doublons, `max_age` fini et non négatif, action cohérente avec la requête, situations référencées existantes, preuves de signatures présentes dans `required_evidence`, ou non-recouvrement explicite des situations autorisées et bloquées.
+Le loader policy valide désormais la structure YAML, les enums, les actions non vides, les identifiants d'evidence, les doublons, `max_age` fini et non négatif, ainsi que le non-recouvrement de `allow` et `blocked_by`. Les références entre policy et catalogue, les preuves de signature requises et la signature cryptographique des policies ne sont pas encore vérifiées.
 
 **Impact :** une faute de configuration peut rendre une situation impossible à matcher et provoquer un blocage systématique, ou laisser une policy présentée comme complète alors qu'elle ne couvre pas la preuve nécessaire. Avec une policy externe, cela élargit la surface de contournement par mauvaise configuration.
 
-**Remédiation :** introduire une validation de schéma et de cohérence au chargement; refuser les doublons et les références orphelines; exiger un catalogue associé pour les policies V2; vérifier les types numériques et borner les tailles des listes, chaînes et descriptions; versionner et signer les policies de production.
+**Remédiation restante :** introduire une validation policy/catalogue couplée; exiger un catalogue associé aux policies V2; vérifier les références orphelines et borner les tailles; versionner et signer les policies de production.
 
-### SEC-05 — Redaction des informations sensibles incomplète
+### SEC-05 — PARTIELLEMENT CORRIGÉ — Redaction des informations sensibles
 
 **Gravité : Moyenne**  
 **Confiance : élevée**  
 **Composants :** `providers/dependency.py`, `providers/docker.py`, `models/observation.py`, `cli/render.py`
 
-La redaction des URLs dépend d'une liste de paramètres sensibles. La redaction des logs Docker utilise une regex limitée aux formes `password`, `token`, `secret`, `api_key` et `authorization`. Les observations conservent par ailleurs `method`, `message`, `value`, chemins de certificats/clés, erreurs système, noms d'hôtes, sorties de commandes et parfois des champs bruts (`raw`). La sortie JSON expose toutes ces données à l'appelant.
+Une redaction centralisée est désormais appliquée à `method`, `message` et `value` lors de la sérialisation JSON, en complément des protections URL et logs Docker. Elle reste fondée sur des motifs et ne supprime pas toutes les informations internes avant leur conservation dans les objets d'observation.
 
 **Impact :** fuite de topologie, chemins sensibles, noms de services, paramètres secrets non reconnus, messages d'erreur contenant des credentials ou données applicatives. Une regex ne peut pas garantir la suppression de secrets structurés, encodés ou placés dans un corps de réponse.
 
-**Remédiation :** adopter une fonction de redaction centralisée avant création de l'observation et avant sérialisation; ne jamais conserver le contenu brut par défaut; utiliser une allowlist de champs exportables, borner toutes les sorties, masquer les chemins de clés privées et traiter les secrets via une bibliothèque/configuration structurée. Ajouter des tests de redaction URI, headers, logs, exceptions et sorties distantes.
+**Remédiation restante :** appliquer une allowlist de champs exportables, supprimer les contenus bruts non indispensables, masquer les chemins sensibles et ajouter des tests pour headers, exceptions et sorties distantes.
 
-### SEC-06 — Falsification possible de l'heure d'observation et fraîcheur
+### SEC-06 — CORRIGÉ — Falsification possible de l'heure d'observation et fraîcheur
 
 **Gravité : Moyenne**  
 **Confiance : moyenne à élevée**  
 **Composants :** `models/observation.py`, `evidence/evaluator.py`, providers
 
-La fraîcheur est calculée à partir de `observed_at`, valeur produite par le provider. Les providers intégrés utilisent l'horloge locale, mais un provider dynamique ou une observation injectée peut fournir une date future ou une date choisie. Aucune règle visible ne rejette les dates futures, les timestamps trop éloignés ou les horloges incohérentes entre hôte local et hôte distant.
+L'évaluateur rejette désormais les timestamps futurs de plus de cinq secondes en convertissant la preuve en `UNKNOWN` et marque l'observation comme stale. La règle de fraîcheur existante continue à appliquer `max_age` avant décision.
 
 **Impact :** une preuve peut être considérée fraîche alors que son origine est ancienne, ou être rendue artificiellement périmée. Dans un système acceptant des providers externes, cela affaiblit le contrat de fraîcheur.
 
-**Remédiation :** renseigner `collected_at` côté moteur et vérifier l'écart maximal entre `observed_at` et `collected_at`; rejeter ou marquer `UNKNOWN` les dates futures et les dates hors fenêtre; authentifier la provenance des providers distants.
+**Vérification :** des tests couvrent les timestamps futurs et les observations périmées. **Risque résiduel :** la provenance distante n'est pas cryptographiquement attestée.
 
 ## 4. Défauts de conception et risques de robustesse
 
-### DES-01 — Budget de probes partagé et mutabilité cachée
+### DES-01 — CORRIGÉ — Budget de probes partagé et mutabilité cachée
 
-`CapabilitySet` est une dataclass gelée mais contient un `ProbeTracker` mutable. Le tracker est réutilisé par une instance de `AgentSafetyGate` entre les appels `evaluate()`. Une requête peut donc consommer le budget des requêtes suivantes. De plus, `record_probe()` incrémente avant de vérifier la limite : une tentative refusée consomme le compteur.
+`CapabilitySet` contient toujours un `ProbeTracker` mutable, mais le gate crée désormais une copie isolée avec tracker neuf pour chaque évaluation. Les compteurs ne fuient donc plus entre requêtes.
 
 **Impact :** déni de service logique entre sessions, résultats dépendants de l'ordre des requêtes et audit moins prévisible.
 
-**Remédiation :** créer un tracker par évaluation ou par session explicitement définie; décider séparément si les tentatives refusées comptent; rendre la durée de vie et la concurrence du quota explicites.
+**Vérification :** `tests/test_agent_sdk.py` vérifie l'isolation du budget. **Risque résiduel :** une tentative refusée est encore comptabilisée avant le contrôle de limite.
 
-### DES-02 — Valeurs par défaut trop permissives pour une gateway
+### DES-02 — PARTIELLEMENT CORRIGÉ — Valeurs par défaut trop permissives pour une gateway
 
-`NetworkCapability` autorise par défaut toutes les opérations et la cible `"*"`; `KubernetesCapability` autorise tous les namespaces sauf trois namespaces système. La protection SSH ajoutée dans le gate impose une policy explicite, mais les autres probes restent largement ouvertes si l'appelant construit directement un `ExecutionContext` ou utilise le SDK sans policy restrictive.
+Le `AgentSafetyGate` utilise désormais par défaut une allowlist loopback et désactive Kubernetes sans capability explicite. Les classes `NetworkCapability` et `KubernetesCapability` restent permissives lorsqu'un appelant construit directement un `ExecutionContext` ou les instancie sans policy restrictive.
 
 **Impact :** une mauvaise intégration peut permettre des probes vers des cibles internes, des ports arbitraires ou des namespaces inattendus. Ce n'est pas une injection de commande, mais une violation possible du principe de moindre privilège.
 
-**Remédiation :** defaults deny pour les agents; exiger une policy explicite pour toute opération réseau et Kubernetes; imposer une allowlist de cibles et namespaces; séparer les capabilities de diagnostic local et distant.
+**Remédiation restante :** conserver le profil loopback du gate, documenter ou imposer des defaults deny dans les API de construction directe et séparer les capabilities locales/distantes.
 
-### DES-03 — Classification Kubernetes trop affirmative
+### DES-03 — CORRIGÉ — Classification Kubernetes trop affirmative
 
-Le provider transforme l'échec de `kubectl get pod`, une absence de pod ou une erreur de parsing JSON en observation `FAIL` sur `k8s.pod_phase`. Une impossibilité de collecter ou de vérifier une donnée devrait généralement être `UNKNOWN`, tandis qu'un pod réellement absent, une erreur d'autorisation et une panne de kubectl sont des causes différentes.
+Le provider distingue désormais le pod absent (`FAIL` avec `POD_NOT_FOUND`) des erreurs de transport/permission (`UNKNOWN`) et des erreurs de parsing (`UNKNOWN`), avec un statut de transport explicite.
 
-**Impact :** le système peut présenter une panne confirmée alors qu'il n'a qu'une erreur de transport ou d'autorisation. La décision reste souvent bloquée, mais l'explication et la cause racine sont fausses, ce qui peut provoquer une mauvaise remédiation humaine.
+**Impact historique :** le système pouvait présenter une panne confirmée pour une erreur de transport ou d'autorisation. Le correctif conserve le blocage de sûreté tout en améliorant l'exactitude de l'explication.
 
-**Remédiation :** distinguer `POD_NOT_FOUND`, `FORBIDDEN`, timeout, outil absent et JSON invalide; réserver `FAIL` aux faits observés sur le pod; produire `UNKNOWN` pour les erreurs de collecte et inclure un champ d'état du transport.
+**Vérification :** les tests Kubernetes couvrent la distinction entre absence, erreur de collecte et JSON invalide.
 
 ### DES-04 — Dépendances et versions non gouvernées par un lock de production
 
@@ -139,9 +137,9 @@ Le provider transforme l'échec de `kubectl get pod`, une absence de pod ou une 
 
 **Remédiation :** produire un lockfile/rapport SBOM par environnement, scanner un environnement vierge construit depuis le projet, séparer dépendances runtime et outils de test, automatiser le seuil de blocage CVE et documenter les exceptions.
 
-### DES-05 — Contrats et versions documentés contradictoires
+### DES-05 — PARTIELLEMENT CORRIGÉ — Contrats et versions documentés contradictoires
 
-`SECURITY.md` mentionne la release `0.5.0`, `pyproject.toml` déclare `0.5.0`, mais d'autres documents et métadonnées du workspace mentionnent V0.8/V0.9 ou des versions plus anciennes. Le contrat contient aussi des mentions historiques incompatibles avec le support Kubernetes actuel.
+`pyproject.toml` et `SECURITY.md` ont été alignés sur `1.0.1`, mais des documents historiques ou métadonnées peuvent encore mentionner V0.8/V0.9 ou des versions antérieures. Le contrat peut également conserver des mentions historiques incompatibles avec le support Kubernetes actuel.
 
 **Impact :** mauvaise gestion des correctifs, difficulté à savoir quelle policy, quel schéma JSON et quelle surface de sécurité sont effectivement supportés; risque de publier un audit ou une advisory contre une version erronée.
 
@@ -154,24 +152,23 @@ Le provider transforme l'échec de `kubectl get pod`, une absence de pod ou une 
 - Le moteur valide que les observations retournées restent dans le namespace et la source attendus.
 - `UNKNOWN` est distinct de `FAIL` dans le modèle et le moteur; le défaut `on_unknown` est fail-closed.
 - L'ordre de décision est `BLOCK > HUMAN_REVIEW > ALLOW` et la recommandation est calculée après la décision.
-- Les providers dynamiques explicitement approuvés peuvent être vérifiés par hash SHA-256.
+- Les providers externes explicitement approuvés peuvent être vérifiés par hash SHA-256 avant import.
 - Les tests couvrent l'architecture, les capabilities, le transport SSH, la redaction de plusieurs données et les invariants de décision.
 - Bandit : aucune alerte sur `src` avec la configuration du projet. Ruff : contrôle réussi sur `src` et `tests`.
 
-Ces contrôles réduisent le risque, mais ils ne compensent pas une validation TLS désactivée ou une policy non gouvernée : un outil de sécurité peut être syntaxiquement propre tout en produisant une preuve métier non fiable.
+Ces contrôles réduisent le risque, mais l'option TLS insecure, la redaction partielle et une policy non gouvernée restent à traiter explicitement en production.
 
 ## 6. Plan de remédiation priorisé
 
-### P0 — avant usage comme autorité de confiance
+### P0 — vérifications restantes avant usage comme autorité de confiance
 
-1. Réactiver la validation TLS pour les probes locales et distantes; documenter une exception contrôlée uniquement si nécessaire.
-2. Désactiver l'import automatique des providers expérimentaux et imposer l'approbation/hash avant import.
-3. Empêcher un agent de choisir librement `policy_path`; vérifier l'action, l'empreinte, la version et le schéma de la policy.
-4. Traiter les erreurs de collecte Kubernetes et similaires comme `UNKNOWN` lorsqu'aucun fait d'incident n'a été observé.
+1. Interdire `allow_insecure_tls` dans les capabilities de production et contrôler la provenance des manifests de plugins.
+2. Ajouter une allowlist/empreinte de policy pour le fallback agent et imposer V2 selon le profil de déploiement.
+3. Vérifier en environnement représentatif les permissions, la chaîne SSH, les certificats de confiance et le comportement des providers corrigés.
 
 ### P1 — durcissement de la gouvernance
 
-1. Ajouter une validation sémantique stricte des policies/catalogues.
+1. Compléter la validation sémantique des policies/catalogues, notamment les références catalogue/policy.
 2. Centraliser la redaction et supprimer les sorties brutes non indispensables.
 3. Isoler les quotas de probes par appel/session et passer les defaults agent en deny-by-default.
 4. Produire un environnement de build reproductible, un SBOM et un scan SCA propre.
@@ -188,13 +185,13 @@ Ces contrôles réduisent le risque, mais ils ne compensent pas une validation T
 |---|---|
 | `bandit -r src -c pyproject.toml` | PASS, 0 alerte |
 | `ruff check src tests` | PASS |
-| `pytest -q` | PASS, 197 tests |
+| `pytest -q` | PASS, 210 tests |
 | `pip-audit --local` | NON CONCLUANT pour le projet : 112 alertes / 23 paquets de l'environnement courant |
 
 Le résultat `pip-audit` doit être relancé dans un environnement virtuel propre avant de qualifier les dépendances runtime comme vulnérables ou saines.
 
 ## 8. Avis final
 
-EvidenceTool est conçu avec une séparation saine entre observation et décision et montre une bonne maturité sur les injections shell et les invariants de décision. Les failles les plus préoccupantes ne sont pas détectées par les scanners syntaxiques : elles concernent la confiance accordée aux preuves réseau, l'import de code avant autorisation, et la capacité d'un appelant à choisir la policy.
+EvidenceTool est conçu avec une séparation saine entre observation et décision et montre une bonne maturité sur les injections shell et les invariants de décision. Les constats prioritaires du rapport précédent concernant TLS, l'import de code non approuvé, la sélection de policy, les timestamps, les quotas et la classification Kubernetes ont été traités dans le commit courant. Les risques restants concernent surtout la gouvernance, la redaction, les defaults de capabilities et la chaîne d'approvisionnement.
 
-**Avis : non recommandé comme passerelle d'autorisation de remédiation en production avant clôture des constats SEC-01, SEC-02 et SEC-03.** Il peut continuer à être utilisé comme outil d'observation sous contrôle, avec sortie et accès réseau limités, en attendant ces corrections.
+**Avis mis à jour : utilisable comme passerelle sous réserve de gouvernance des policies, de durcissement des capabilities directes et de validation E2E représentative; les constats SEC-01, SEC-02 et SEC-03 ne sont plus ouverts dans le code audité.**

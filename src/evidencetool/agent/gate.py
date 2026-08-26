@@ -14,6 +14,8 @@ from evidencetool.capability.models import (
     CapabilityDenied,
     CapabilitySet,
     ExecutionContext,
+    KubernetesCapability,
+    NetworkCapability,
 )
 from evidencetool.causality.loader import load_causal_catalog
 from evidencetool.causality.models import CausalRule
@@ -49,7 +51,10 @@ class AgentSafetyGate:
         elif capability_policy is not None:
             self._capabilities = load_capability_policy(capability_policy, expected_hash=capability_hash)
         else:
-            self._capabilities = CapabilitySet()
+            self._capabilities = CapabilitySet(
+                network=NetworkCapability(targets=("127.0.0.0/8", "::1")),
+                kubernetes=KubernetesCapability(enabled=False, operations=frozenset(), allowed_namespaces=()),
+            )
 
         self._catalog: list[Situation] | None
         if isinstance(catalog, list):
@@ -83,6 +88,8 @@ class AgentSafetyGate:
         if self._default_policy:
             policy = self._default_policy
         elif request.policy_path:
+            if request.caller_type.value == "AI_AGENT":
+                raise CapabilityDenied("AI agents require a gate default policy; request policy_path is not trusted.")
             policy = load_policy(request.policy_path)
         else:
             raise ValueError("No policy specified in request or default gate configuration.")
