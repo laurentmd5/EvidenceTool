@@ -256,3 +256,51 @@ def test_agent_safety_gate_requires_explicit_capability_for_ssh():
 
     with pytest.raises(CapabilityDenied, match="explicit capability policy"):
         gate.evaluate(request)
+
+
+def test_agent_safety_gate_policy_action_mismatch():
+    gate = AgentSafetyGate(
+        catalog="catalogs/nginx.yaml",
+        default_policy="policies/nginx.yaml",  # action: restart_nginx
+    )
+    # Agent requests an action not governed by this policy
+    request = AgentDiagnosisRequest(
+        agent_id="remediation-bot",
+        action="delete_database",
+        target="nginx",
+        context={"service": "nginx"},
+    )
+
+    with pytest.raises(ValueError, match="Policy action mismatch"):
+        gate.evaluate(request)
+
+
+def test_agent_safety_gate_per_evaluation_tracker_isolation():
+    # Budget of 5 probes per evaluation
+    caps = CapabilitySet(network=NetworkCapability(max_probes=5))
+    gate = AgentSafetyGate(
+        capability_policy=caps,
+        catalog="catalogs/distributed.yaml",
+        default_policy="policies/distributed.yaml",
+    )
+
+    req1 = AgentDiagnosisRequest(
+        agent_id="agent-1",
+        action="restart_application",
+        target="app",
+        context={"url": "http://127.0.0.1:8080/health", "target": "127.0.0.1", "port": "5432"},
+    )
+    req2 = AgentDiagnosisRequest(
+        agent_id="agent-2",
+        action="restart_application",
+        target="app",
+        context={"url": "http://127.0.0.1:8080/health", "target": "127.0.0.1", "port": "5432"},
+    )
+
+    res1 = gate.evaluate(req1)
+    res2 = gate.evaluate(req2)
+
+    # Both evaluations start with fresh probe budget and do not leak consumed count
+    assert res1.authority.probes_budget == 5
+    assert res2.authority.probes_budget == 5
+    assert res1.authority.probes_consumed == res2.authority.probes_consumed

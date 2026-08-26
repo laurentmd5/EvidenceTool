@@ -2,6 +2,7 @@ import hashlib
 import importlib
 import sys
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
@@ -56,3 +57,25 @@ def test_approved_plugin_rejects_wrong_hash(tmp_path: Path, monkeypatch):
     with pytest.raises(ValueError, match="SHA-256 verification"):
         load_approved_plugins(manifest)
     assert "rejected_plugin" not in sys.modules
+
+
+def test_load_all_providers_does_not_auto_import_unknown_filesystem_modules(monkeypatch):
+    from evidencetool.providers.registry import load_all_providers
+
+    imported = []
+
+    def mock_import(name):
+        imported.append(name)
+        if name.startswith("evidencetool.providers."):
+            return Mock()
+        raise ImportError(f"Unknown module {name}")
+
+    monkeypatch.setattr("importlib.import_module", mock_import)
+
+    load_all_providers()
+
+    # Verify only the 12 verified built-in modules are imported
+    assert len(imported) == 12
+    assert "evidencetool.providers.malicious_unapproved" not in imported
+    assert "evidencetool.providers.nginx" in imported
+    assert "evidencetool.providers.redis" in imported

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -54,6 +55,26 @@ def _parse_evidence_requirement(item: object, index: int) -> EvidenceRequirement
     return EvidenceRequirement(id=evidence_id, on_unknown=on_unknown, max_age=max_age)
 
 
+def _validate_situational_lists(raw: dict[str, Any]) -> tuple[list[str], list[str]]:
+    allow_list = raw.get("allow", [])
+    blocked_by_list = raw.get("blocked_by", [])
+
+    for field, lst in [("allow", allow_list), ("blocked_by", blocked_by_list)]:
+        if not isinstance(lst, list):
+            raise ValueError(f"Invalid policy: '{field}' must be a list.")
+        if any(not isinstance(s, str) or not s.strip() for s in lst):
+            raise ValueError(f"Invalid policy: '{field}' entries must be non-empty strings.")
+
+    # Semantic validation: Ensure allow and blocked_by are strictly disjoint (SEC-04)
+    conflicts = set(allow_list).intersection(set(blocked_by_list))
+    if conflicts:
+        raise ValueError(
+            f"Semantic Policy Conflict: situations cannot be simultaneously allowed and blocked: {sorted(conflicts)}"
+        )
+
+    return allow_list, blocked_by_list
+
+
 def load_policy_from_string(text: str) -> Policy:
     raw = yaml.safe_load(text)
     if not isinstance(raw, dict):
@@ -79,9 +100,7 @@ def load_policy_from_string(text: str) -> Policy:
     except (ValueError, TypeError) as exc:
         raise ValueError("Invalid policy: 'schema' or 'risk' has an unsupported value.") from exc
 
-    for field in ("allow", "blocked_by"):
-        if field in raw and not isinstance(raw[field], list):
-            raise ValueError(f"Invalid policy: '{field}' must be a list.")
+    allow_list, blocked_by_list = _validate_situational_lists(raw)
 
     human_approval = raw.get("human_approval", False)
     if not isinstance(human_approval, bool):
@@ -93,7 +112,7 @@ def load_policy_from_string(text: str) -> Policy:
         risk=risk,
         schema=schema,
         required_evidence=required_evidence,
-        allow=raw.get("allow", []),
-        blocked_by=raw.get("blocked_by", []),
+        allow=allow_list,
+        blocked_by=blocked_by_list,
         human_approval=human_approval,
     )

@@ -314,3 +314,33 @@ def test_k8s_situation_correlation_and_decision(monkeypatch):
     assert decision.status.value == "BLOCK"
     assert "K8S_OOM_KILLED" in decision.reason
     assert "k8s.container_oom_killed" in decision.blocking_evidence
+
+
+def test_k8s_transport_failure_is_unknown(monkeypatch):
+    p = K8sProvider()
+
+    def mock_run_transport_err(args, **kwargs):
+        return Mock(ran=True, returncode=1, stdout="", stderr="Error from server (Forbidden): pods is forbidden")
+
+    monkeypatch.setattr("evidencetool.providers.k8s.run_command", mock_run_transport_err)
+
+    obs = p.collect(ProviderContext({"pod": "web-789", "namespace": "default"}))
+    assert len(obs) == 1
+    assert obs[0].value["status"] == "UNKNOWN"
+    assert obs[0].value["failure"] == "TRANSPORT_OR_PERMISSION_ERROR"
+    assert obs[0].transport_status == "failed"
+
+
+def test_k8s_pod_not_found_is_fail(monkeypatch):
+    p = K8sProvider()
+
+    def mock_run_not_found(args, **kwargs):
+        return Mock(ran=True, returncode=1, stdout="", stderr="Error from server (NotFound): pods \"web-999\" not found")
+
+    monkeypatch.setattr("evidencetool.providers.k8s.run_command", mock_run_not_found)
+
+    obs = p.collect(ProviderContext({"pod": "web-999", "namespace": "default"}))
+    assert len(obs) == 1
+    assert obs[0].value["status"] == "FAIL"
+    assert obs[0].value["failure"] == "POD_NOT_FOUND"
+    assert obs[0].transport_status == "ok"

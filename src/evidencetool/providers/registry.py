@@ -104,49 +104,40 @@ def get_provider_trust(namespace: str) -> ProviderTrust:
     return _PROVIDER_TRUST[namespace]
 
 
-def load_all_providers(include_experimental: bool = True) -> None:
-    """
-    Dynamically discovers and imports all provider modules in the `providers` package.
-    Any class decorated with `@provider` in these modules will automatically register itself.
-    """
-    import pkgutil
+BUILTIN_MODULE_NAMES = (
+    "dependency",
+    "docker",
+    "filesystem",
+    "k8s",
+    "mysql",
+    "network",
+    "nginx",
+    "postgres",
+    "process",
+    "redis",
+    "systemd",
+    "tls",
+)
 
-    import evidencetool.providers
 
-    builtin_modules = {
-        "dependency",
-        "docker",
-        "filesystem",
-        "k8s",
-        "mysql",
-        "network",
-        "nginx",
-        "postgres",
-        "process",
-        "redis",
-        "systemd",
-        "tls",
-    }
-    package = evidencetool.providers
-    for _, module_name, is_pkg in pkgutil.iter_modules(package.__path__):
-        if (
-            not is_pkg
-            and not module_name.startswith("_")
-            and module_name not in ("base", "registry")
-            and (include_experimental or module_name in builtin_modules)
-        ):
-            full_module_name = f"{package.__name__}.{module_name}"
-            try:
-                importlib.import_module(full_module_name)
-            except Exception as e:
-                # Store the error so it can be audited
-                _FAILED_PROVIDERS[module_name] = ProviderLoadError(
-                    namespace=module_name,
-                    module=full_module_name,
-                    error=str(e)
-                )
-                import logging
-                logging.getLogger(__name__).error(f"Failed to load provider module {full_module_name}: {e}")
+def load_all_providers(include_experimental: bool = False) -> None:
+    """
+    Statically imports the 12 verified built-in providers.
+    External providers are never auto-discovered from the filesystem and must be
+    explicitly approved via load_approved_plugins() before import.
+    """
+    for module_name in BUILTIN_MODULE_NAMES:
+        full_module_name = f"evidencetool.providers.{module_name}"
+        try:
+            importlib.import_module(full_module_name)
+        except Exception as e:
+            _FAILED_PROVIDERS[module_name] = ProviderLoadError(
+                namespace=module_name,
+                module=full_module_name,
+                error=str(e),
+            )
+            import logging
+            logging.getLogger(__name__).error(f"Failed to load built-in provider module {full_module_name}: {e}")
 
 
 def load_approved_plugins(manifest_path: str | Path) -> None:

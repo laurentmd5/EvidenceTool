@@ -79,25 +79,33 @@ class AgentSafetyGate:
         """
         Evaluates an agent's proposed action against operational evidence and policies.
         """
-        # Resolve policy
-        if request.policy_path:
-            policy = load_policy(request.policy_path)
-        elif self._default_policy:
+        # Resolve policy (Default gate policy is authoritative in gateway mode)
+        if self._default_policy:
             policy = self._default_policy
+        elif request.policy_path:
+            policy = load_policy(request.policy_path)
         else:
             raise ValueError("No policy specified in request or default gate configuration.")
 
-        # Build ExecutionContext with agent identity
+        # Invariant 4: Validate that policy governs the exact requested action (SEC-03)
+        if policy.action != request.action:
+            raise ValueError(
+                f"Policy action mismatch: policy governs '{policy.action}' but agent requested '{request.action}'."
+            )
+
+        # Build ExecutionContext with agent identity & isolated probe tracker (DES-01)
         identity = CallerIdentity(
             caller_id=request.agent_id,
             caller_type=request.caller_type,
             session_id=request.session_id,
         )
 
+        eval_capabilities = self._capabilities.clone_isolated()
+
         exec_ctx = ExecutionContext(
             caller=request.agent_id,
             identity=identity,
-            capabilities=self._capabilities,
+            capabilities=eval_capabilities,
         )
 
         # Enforce SSH destination confinement (F-01)
@@ -105,7 +113,7 @@ class AgentSafetyGate:
         if ssh_host:
             if not self._explicit_capability_policy:
                 raise CapabilityDenied("SSH transport requires an explicit capability policy.")
-            self._capabilities.require_ssh_transport(str(ssh_host))
+            eval_capabilities.require_ssh_transport(str(ssh_host))
 
         # Run deterministic diagnosis
         # Ensure context values are strings for ProviderContext compatibility
@@ -135,13 +143,13 @@ class AgentSafetyGate:
             except IndexError:
                 pass
 
-        # Build authority metadata
-        tracker = self._capabilities.probe_tracker
+        # Build authority metadata with per-evaluation consumed probes
+        tracker = eval_capabilities.probe_tracker
         authority = AuthorityMetadata(
             caller_id=request.agent_id,
             caller_type=request.caller_type.value,
             session_id=request.session_id,
-            policy_fingerprint=self._capabilities.policy_fingerprint,
+            policy_fingerprint=eval_capabilities.policy_fingerprint,
             probes_budget=tracker.max_probes,
             probes_consumed=tracker.consumed,
             probes_remaining=tracker.remaining,

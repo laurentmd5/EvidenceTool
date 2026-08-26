@@ -83,3 +83,20 @@ required_evidence:
 """
     with pytest.raises(ValueError, match="max_age"):
         load_policy_from_string(text)
+
+
+def test_load_policy_rejects_semantic_conflicts():
+    text = """
+version: "1"
+action: restart_nginx
+risk: LOW
+schema: "v2"
+allow:
+  - NGINX_SERVICE_DOWN
+  - CONFLICTING_SITUATION
+blocked_by:
+  - TLS_CERTIFICATE_EXPIRED
+  - CONFLICTING_SITUATION
+"""
+    with pytest.raises(ValueError, match="Semantic Policy Conflict"):
+        load_policy_from_string(text)

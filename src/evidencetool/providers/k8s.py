@@ -59,6 +59,15 @@ class K8sProvider:
 
         if not res.ran or res.returncode != 0:
             err = res.stderr.strip() if res.ran else (res.error or "Command failed")
+            if "notfound" in err.lower() or "not found" in err.lower():
+                status_str = "FAIL"
+                failure_str = "POD_NOT_FOUND"
+                transport_st = "ok"
+            else:
+                status_str = "UNKNOWN"
+                failure_str = "TRANSPORT_OR_PERMISSION_ERROR"
+                transport_st = "failed"
+
             return [
                 Observation(
                     id="k8s.pod_phase",
@@ -66,10 +75,11 @@ class K8sProvider:
                     category="orchestration",
                     collector=COLLECTOR,
                     method=method,
-                    value={"status": "FAIL", "failure": "POD_NOT_FOUND", "error": err},
+                    value={"status": status_str, "failure": failure_str, "error": err},
                     message=f"Could not get pod '{pod_name}' in namespace '{namespace}': {err}",
                     observed_at=_now(),
                     host=host,
+                    transport_status=transport_st,
                 )
             ]
 
@@ -83,10 +93,11 @@ class K8sProvider:
                     category="orchestration",
                     collector=COLLECTOR,
                     method=method,
-                    value={"status": "FAIL", "failure": "JSON_PARSE_ERROR", "error": str(e)},
+                    value={"status": "UNKNOWN", "failure": "JSON_PARSE_ERROR", "error": str(e)},
                     message=f"Failed to parse kubectl json output: {e}",
                     observed_at=_now(),
                     host=host,
+                    transport_status="failed",
                 )
             ]
 

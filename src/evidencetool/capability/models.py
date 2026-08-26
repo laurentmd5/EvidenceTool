@@ -91,6 +91,7 @@ class NetworkCapability:
     ports: frozenset[int] | None = None
     max_probes: int | None = None
     timeout_seconds: float = 2.0
+    allow_insecure_tls: bool = False
 
     def allows_operation(self, operation: str) -> bool:
         return self.enabled and operation in self.operations
@@ -168,6 +169,17 @@ class CapabilitySet:
 
     def allows_provider(self, namespace: str) -> bool:
         return self.allowed_providers is None or namespace in self.allowed_providers
+
+    def clone_isolated(self) -> CapabilitySet:
+        """Returns a copy of the capability set with an isolated, fresh ProbeTracker."""
+        return CapabilitySet(
+            network=self.network,
+            kubernetes=self.kubernetes,
+            allowed_providers=self.allowed_providers,
+            require_trusted_providers=self.require_trusted_providers,
+            policy_fingerprint=self.policy_fingerprint,
+            probe_tracker=ProbeTracker(max_probes=self.network.max_probes),
+        )
 
 
 @dataclass(frozen=True)

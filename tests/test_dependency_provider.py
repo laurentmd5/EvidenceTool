@@ -95,3 +95,45 @@ def test_dependency_url_sanitization_redacts_credentials_and_tokens():
     assert "safe_param=hello" in status_obs.method
     assert "admin:secret123" not in status_obs.value["url"]
     assert "supersecret" not in status_obs.value["url"]
+
+
+def test_dependency_https_strict_tls_and_capability_governance():
+    import ssl
+
+    from evidencetool.capability.models import CapabilitySet, ExecutionContext, NetworkCapability
+
+    p = DependencyProvider()
+
+    # 1. Default: strict TLS (CERT_REQUIRED)
+    captured_context = []
+
+    class MockHTTPSConn:
+        def __init__(self, host, port, timeout, context):
+            captured_context.append(context)
+        def request(self, *args, **kwargs):
+            pass
+        def getresponse(self):
+            resp = Mock()
+            resp.status = 200
+            return resp
+        def close(self):
+            pass
+
+    with patch("evidencetool.providers.dependency.http.client.HTTPSConnection", MockHTTPSConn):
+        p.collect(ProviderContext({"url": "https://api.example.com/health"}))
+
+    assert len(captured_context) == 1
+    assert captured_context[0].verify_mode == ssl.CERT_REQUIRED
+    assert captured_context[0].check_hostname is True
+
+    # 2. Capability-governed insecure TLS allowed
+    captured_context.clear()
+    cap = CapabilitySet(network=NetworkCapability(allow_insecure_tls=True))
+    exec_ctx = ExecutionContext(capabilities=cap)
+
+    with patch("evidencetool.providers.dependency.http.client.HTTPSConnection", MockHTTPSConn):
+        p.collect(ProviderContext({"url": "https://api.example.com/health"}, execution=exec_ctx))
+
+    assert len(captured_context) == 1
+    assert captured_context[0].verify_mode == ssl.CERT_NONE
+    assert captured_context[0].check_hostname is False

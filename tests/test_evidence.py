@@ -69,3 +69,11 @@ def test_evidence_exactly_at_max_age_is_marked_stale(observation_factory):
     evidence = evaluate_observation(obs, max_age=30)
     assert evidence.status == EvidenceStatus.UNKNOWN
     assert evidence.is_stale is True
+
+
+def test_future_timestamp_becomes_unknown(observation_factory):
+    obs = observation_factory("nginx.config.valid", "PASS", age_seconds=-100)
+    evidence = evaluate_observation(obs)
+    assert evidence.status == EvidenceStatus.UNKNOWN
+    assert evidence.is_stale is True
+    assert "future date detected" in evidence.message

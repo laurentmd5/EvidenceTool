@@ -117,27 +117,35 @@ class DependencyProvider:
         return observations
 
     def _probe_remote(
-        self, url: str, host: str, timeout: float, sla_budget_ms: float
+        self, url: str, host: str, timeout: float, sla_budget_ms: float, allow_insecure_tls: bool
     ) -> tuple[Observation, Observation, Observation, Observation]:
+        curl_cmd = [
+            "curl",
+            "-s",
+            "-o",
+            "/dev/null",
+            "-w",
+            "%{http_code}:%{time_total}",
+            "--connect-timeout",
+            str(int(timeout)),
+        ]
+        if allow_insecure_tls:
+            curl_cmd.append("-k")
+        curl_cmd.append(url)
+
+        disp_cmd = [
+            "curl", "-s", "-o", "/dev/null", "-w", "%{http_code}:%{time_total}",
+            "--connect-timeout", str(int(timeout)),
+        ]
+        if allow_insecure_tls:
+            disp_cmd.append("-k")
+        disp_cmd.append(_sanitize_url(url))
+
         res = run_command(
-            [
-                "curl",
-                "-s",
-                "-o",
-                "/dev/null",
-                "-w",
-                "%{http_code}:%{time_total}",
-                "--connect-timeout",
-                str(int(timeout)),
-                "-k",
-                url,
-            ],
+            curl_cmd,
             timeout=timeout + 2,
             host=host,
-            display_args=[
-                "curl", "-s", "-o", "/dev/null", "-w", "%{http_code}:%{time_total}",
-                "--connect-timeout", str(int(timeout)), "-k", _sanitize_url(url),
-            ],
+            display_args=disp_cmd,
         )
 
         if res.ran and res.returncode == 0 and ":" in res.stdout:
@@ -153,7 +161,15 @@ class DependencyProvider:
         return self._build_observations(url, code, raw_latency_ms, sla_budget_ms, host, _sanitize_error(error, url))
 
     def _probe_local(
-        self, scheme: str, target_host: str, port: int, http_path: str, url: str, timeout: float, sla_budget_ms: float
+        self,
+        scheme: str,
+        target_host: str,
+        port: int,
+        http_path: str,
+        url: str,
+        timeout: float,
+        sla_budget_ms: float,
+        allow_insecure_tls: bool,
     ) -> tuple[Observation, Observation, Observation, Observation]:
         start_t = time.perf_counter()
         error = None
@@ -162,15 +178,19 @@ class DependencyProvider:
         try:
             if scheme == "https":
                 ctx = ssl.create_default_context()
-                ctx.check_hostname = False
-                ctx.verify_mode = ssl.CERT_NONE
+                if allow_insecure_tls:
+                    ctx.check_hostname = False
+                    ctx.verify_mode = ssl.CERT_NONE
+                else:
+                    ctx.check_hostname = True
+                    ctx.verify_mode = ssl.CERT_REQUIRED
                 conn: http.client.HTTPConnection = http.client.HTTPSConnection(
                     target_host, port=port, timeout=timeout, context=ctx
                 )
             else:
                 conn = http.client.HTTPConnection(target_host, port=port, timeout=timeout)
 
-            conn.request("GET", http_path, headers={"User-Agent": "EvidenceTool/0.6.0-DependencyProbe"})
+            conn.request("GET", http_path, headers={"User-Agent": "EvidenceTool/1.0.0-DependencyProbe"})
             resp = conn.getresponse()
             code = resp.status
             raw_latency_ms = (time.perf_counter() - start_t) * 1000.0
@@ -202,10 +222,13 @@ class DependencyProvider:
             obs_cb = self._unknown_observation("dependency.circuit_breaker", method, target_host, "http_probe", host, str(exc))
             return obs, obs_lat, obs_sla, obs_cb
 
+        allow_insecure_tls = bool(
+            self._capabilities and self._capabilities.network.allow_insecure_tls
+        )
         timeout = self._probe_timeout()
         if host:
-            return self._probe_remote(url, host, timeout, sla_budget_ms)
-        return self._probe_local(scheme, target_host, port, http_path, url, timeout, sla_budget_ms)
+            return self._probe_remote(url, host, timeout, sla_budget_ms, allow_insecure_tls)
+        return self._probe_local(scheme, target_host, port, http_path, url, timeout, sla_budget_ms, allow_insecure_tls)
 
     def _build_observations(
         self, raw_url: str, code: int, raw_latency_ms: float, sla_budget_ms: float, host: str | None, error: str | None

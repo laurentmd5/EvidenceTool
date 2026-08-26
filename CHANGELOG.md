@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.1] - 2026-08-26
+### Security & Authority Hardening
+- **Strict TLS Verification by Default (`SEC-01`)**: Dependency HTTPS probes validate certificates and hostnames (`CERT_REQUIRED`). `allow_insecure_tls` is strictly governed by `NetworkCapability`.
+- **Static Provider Trust Boundary (`SEC-02`)**: Replaced filesystem dynamic discovery with explicit static registration of the 12 built-in providers; external plugins strictly require pre-import SHA-256 validation.
+- **Agent Policy Immutability & Action Matching (`SEC-03`)**: Gate policies are authoritative; enforced strict matching between `policy.action` and `request.action`.
+- **Semantic Policy Conflict Validation (`SEC-04`)**: Added load-time checks ensuring `allow` and `blocked_by` are strictly disjoint.
+- **Per-Evaluation Probe Budget Isolation (`DES-01`)**: Isolated `ProbeTracker` per evaluation request (`clone_isolated()`).
+- **Transport Failure Distinction (`DES-03`)**: Reclassified Kubernetes transport/auth errors (`403 Forbidden`, timeouts) as `UNKNOWN` with `transport_status="failed"`, reserving `FAIL` for verified pod defects.
+- **Clock Skew & Future Timestamp Protection (`SEC-06`)**: Requalified future-dated observations (`age < -5s`) as `UNKNOWN`.
+- **Version Truth Alignment (`DES-05`)**: Synchronized version `1.0.1` in `pyproject.toml` and `SECURITY.md`.
+
 ## [1.0.0] - 2026-08-26
 ### Added
 - **Deterministic Causal Reasoning Engine (`evidencetool.causality`)**: Reconstructs verifiable causal propagation chains from observed facts without guessing or probabilistic hallucinations.
