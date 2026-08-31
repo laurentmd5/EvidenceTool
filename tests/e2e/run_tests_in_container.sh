@@ -134,7 +134,7 @@ check_result "$OUT" "BLOCK" "DISK_FULL"
 echo ">>> [5/6] NETWORK PROVIDER E2E <<<"
 
 echo "Scenario 5.1: Real Port & Full HTTPS Chain Reachable (Nginx HTTPS port 443)"
-OUT=$($BASE_DIAGNOSE nginx --catalog /opt/EvidenceTool/catalogs/network.yaml --policy /opt/EvidenceTool/policies/network.yaml -a target_host=127.0.0.1 -a port=443 -a use_tls=true --output json) || true
+OUT=$($BASE_DIAGNOSE nginx --catalog /opt/EvidenceTool/catalogs/network.yaml --policy /opt/EvidenceTool/policies/network.yaml --target-host 127.0.0.1 --port 443 -a use_tls=true --output json) || true
 PORT_STATUS=$($PYTHON -c "import sys, json; d=json.loads(sys.argv[1]); print(next(e['status'] for e in d.get('evidence',[]) if e['id']=='network.port_reachable'))" "$OUT")
 TLS_STATUS=$($PYTHON -c "import sys, json; d=json.loads(sys.argv[1]); print(next(e['status'] for e in d.get('evidence',[]) if e['id']=='network.tls_handshake'))" "$OUT")
 HTTP_STATUS=$($PYTHON -c "import sys, json; d=json.loads(sys.argv[1]); print(next(e['status'] for e in d.get('evidence',[]) if e['id']=='network.http_reachable'))" "$OUT")
@@ -146,11 +146,11 @@ fi
 echo "  -> PASS: Full Network HTTPS Chain (DNS, Route, Host, Port 443, TLS Handshake, HTTP 200)"
 
 echo "Scenario 5.2: Closed Port Unreachable (port 59999 -> NETWORK_TCP_REFUSED)"
-OUT=$($BASE_DIAGNOSE nginx --catalog /opt/EvidenceTool/catalogs/network.yaml --policy /opt/EvidenceTool/policies/network.yaml -a target_host=127.0.0.1 -a port=59999 --output json) || true
+OUT=$($BASE_DIAGNOSE nginx --catalog /opt/EvidenceTool/catalogs/network.yaml --policy /opt/EvidenceTool/policies/network.yaml --target-host 127.0.0.1 --port 59999 --output json) || true
 check_result "$OUT" "BLOCK" "NETWORK_TCP_REFUSED"
 
 echo "Scenario 5.3: Unroutable / Dead Host (NETWORK_HOST_UNREACHABLE)"
-OUT=$($BASE_DIAGNOSE nginx --catalog /opt/EvidenceTool/catalogs/network.yaml --policy /opt/EvidenceTool/policies/network.yaml -a target_host=192.0.2.1 -a port=80 --output json) || true
+OUT=$($BASE_DIAGNOSE nginx --catalog /opt/EvidenceTool/catalogs/network.yaml --policy /opt/EvidenceTool/policies/network.yaml --target-host 192.0.2.1 --port 80 --output json) || true
 check_result "$OUT" "BLOCK" "NETWORK_HOST_UNREACHABLE"
 
 # =========================================================================
