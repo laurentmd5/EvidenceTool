@@ -58,20 +58,22 @@ OUT="$(run_diagnose "$HEALTHY_POD" || true)"
 }
 printf '%s' "$OUT" | "$PYTHON_CMD" -c 'import json,sys; d=json.load(sys.stdin); assert "K8S_POD_HEALTHY" in d["decision"]["reason"]'
 
-kubectl -n "$NAMESPACE" create deployment crashloop --image=busybox:1.36 \
-  -- /bin/sh -c 'exit 1'
-kubectl -n "$NAMESPACE" rollout status deployment/crashloop --timeout=60s >/dev/null 2>&1 || true
-for attempt in $(seq 1 30); do
-  reason="$(kubectl -n "$NAMESPACE" get pod -l app=crashloop -o jsonpath='{.items[0].status.containerStatuses[0].state.waiting.reason}' 2>/dev/null || true)"
+kubectl -n "$NAMESPACE" run crashloop --image=busybox:1.36 \
+  --restart=Always -- /bin/sh -c 'exit 1'
+for attempt in $(seq 1 60); do
+  reason="$(kubectl -n "$NAMESPACE" get pod crashloop -o jsonpath='{.status.containerStatuses[0].state.waiting.reason}' 2>/dev/null || true)"
   [ "$reason" = CrashLoopBackOff ] && break
-  [ "$attempt" -eq 30 ] && { echo "FAIL: CrashLoopBackOff was not observed"; exit 1; }
+  if [ "$attempt" -eq 60 ]; then
+    echo "FAIL: CrashLoopBackOff was not observed (last reason: ${reason:-none})"
+    kubectl -n "$NAMESPACE" describe pod crashloop || true
+    kubectl -n "$NAMESPACE" get events --sort-by=.lastTimestamp || true
+    exit 1
+  fi
   sleep 2
 done
 
 echo "--- CrashLoopBackOff pod ---"
-CRASHLOOP_POD="$(kubectl -n "$NAMESPACE" get pods -l app=crashloop -o jsonpath='{.items[0].metadata.name}')"
-[ -n "$CRASHLOOP_POD" ] || { echo "FAIL: crashloop pod name was not found"; exit 1; }
-OUT="$(run_diagnose "$CRASHLOOP_POD" || true)"
+OUT="$(run_diagnose crashloop || true)"
 [ "$(printf '%s' "$OUT" | extract_decision status)" = BLOCK ] || {
   echo "CrashLoopBackOff diagnostic output:"
   printf '%s\n' "$OUT"
