@@ -8,7 +8,7 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 NETWORK="evidencetool-data-e2e"
 REDIS_CONTAINER="evidencetool-e2e-redis"
 HTTP_CONTAINER="evidencetool-e2e-http"
-HTTP_DIR="$(mktemp -d)"
+HTTP_DIR=""
 
 command -v docker >/dev/null || { echo "docker is required for data E2E" >&2; exit 1; }
 command -v curl >/dev/null || { echo "curl is required for data E2E" >&2; exit 1; }
@@ -16,11 +16,14 @@ command -v curl >/dev/null || { echo "curl is required for data E2E" >&2; exit 1
 cleanup() {
   docker rm -f "$REDIS_CONTAINER" "$HTTP_CONTAINER" >/dev/null 2>&1 || true
   docker network rm "$NETWORK" >/dev/null 2>&1 || true
-  rm -rf "$HTTP_DIR"
+  if [ -n "$HTTP_DIR" ]; then
+    rm -rf "$HTTP_DIR"
+  fi
 }
 trap cleanup EXIT
 
 cleanup
+HTTP_DIR="$(mktemp -d)"
 docker network create "$NETWORK" >/dev/null
 printf 'EvidenceTool E2E health\n' > "$HTTP_DIR/health"
 
