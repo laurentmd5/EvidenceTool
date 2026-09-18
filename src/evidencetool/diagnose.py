@@ -20,7 +20,7 @@ from evidencetool.decision.engine import decide
 from evidencetool.decision.integrity import validate_decision_integrity
 from evidencetool.evidence.evaluator import evaluate_observation
 from evidencetool.models.correlation import Situation
-from evidencetool.models.decision import Decision, DecisionStatus
+from evidencetool.models.decision import Decision
 from evidencetool.models.evidence import Evidence, EvidenceStatus
 from evidencetool.models.incident import Incident, OperationalIncident
 from evidencetool.models.policy import Policy
@@ -342,7 +342,9 @@ def diagnose(  # noqa: C901
 
     trace_record = None
     if tracer:
-        trace_status = "OK" if (m.success and decision.status == DecisionStatus.ALLOW) else "ERROR"
+        # Decision status (ALLOW, BLOCK, HUMAN_REVIEW) is an operational verdict recorded in semantic attributes.
+        # Trace span status reflects execution/integrity success: ERROR is strictly reserved for failures (not m.success).
+        trace_status = "OK" if m.success else "ERROR"
         trace_record = tracer.finish(status=trace_status, description=decision.reason)
 
     return DiagnosisResult(

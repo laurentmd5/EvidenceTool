@@ -655,3 +655,15 @@ EvidenceTool produces distributed OpenTelemetry traces mapping its internal oper
    - Reset, extend, or bypass the per-session `ProbeTracker` budget.
    - Authorize any provider or transport not explicitly allowed by the active capability policy.
 3. **Fail-Safe Robustness**: Malformed or unparseable `traceparent` headers are handled strictly fail-safe: they log a warning and fall back to the active host OpenTelemetry span context (if present) or generate a new independent root trace ID. Malformed trace context **NEVER** raises an unhandled exception or aborts diagnostic evaluation.
+
+### 24.6 Span Status Semantics Invariant
+1. **Operational Decisions are Not Errors**: Operational verdicts (`BLOCK`, `HUMAN_REVIEW`, `ALLOW`) reflect successful policy evaluation and are recorded exclusively as semantic attributes (`evidencetool.decision.status`).
+2. **Error Status Exclusivity**: An OpenTelemetry span status of `StatusCode.ERROR` is strictly reserved for genuine execution or integrity failures:
+   - Diagnostic integrity violation (`metrics.success == False` from `validate_decision_integrity`).
+   - Uncaught crash or capability denial.
+3. **No False APM Alarms**: A legitimate `BLOCK` decision resulting from healthy verification (e.g. preventing a service restart because the TLS certificate is missing) MUST produce an OpenTelemetry span status of `StatusCode.OK` to prevent false positive error rate spikes or APM alert fatigue.
+
+### 24.7 Dual Exporter Hierarchy
+1. **Host-Managed Exporter**: When running inside an already instrumented host application, EvidenceTool spans route through the host's existing `TracerProvider` pipeline.
+2. **Official OTLP Exporter in Standalone Mode**: When executed standalone (CLI or isolated script with `--otel-endpoint`) and `opentelemetry-exporter-otlp-proto-http` is installed, EvidenceTool initializes an internal `TracerProvider` with `OTLPSpanExporter` transmitting standard binary Protobuf over HTTP (`application/x-protobuf`) without mutating the global host provider.
+3. **Pure-Python Zero-Dependency Fallback**: If the OpenTelemetry SDK/exporter packages are absent, EvidenceTool falls back to transmitting standard OTLP JSON (`application/json`) via pure Python standard library HTTP requests.

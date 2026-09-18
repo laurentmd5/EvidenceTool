@@ -13,11 +13,13 @@ All notable changes to this project will be documented in this file.
   - Added strict W3C `traceparent` RFC 00 parser with fail-safe fallback: invalid traceparents never raise exceptions and fall back to the active host span if present.
   - Exposed `traceparent` parameter in `AgentDiagnosisRequest`, `AgentSafetyGate.evaluate()`, `diagnose()`, and CLI option `--traceparent`.
   - Enforced *Trace Context Non-Authentication Invariant* (Section 24.5): traceparent correlation never grants authority or bypasses capability/probe budgets.
-- **OTLP Interoperability & Live Collector Verification (`Étape 3`)**:
-  - Live mock HTTP OTLP collector test suite validating wire transmission (`POST /v1/traces`), JSON `ResourceSpans`, parent-child correlation, and 200/202 status handling.
-  - Collector error resilience verification ensuring HTTP 500 / network failures never disrupt diagnostic decisions.
-  - Comprehensive integration documentation in `docs/observability/opentelemetry.md` with Docker Compose Jaeger/OTel Collector recipes.
-  - 19 dedicated tracing tests passing 100% (250 total tests in test suite).
+- **Production Hardening & Quality Gate Alignment**:
+  - **Span Status Semantics Invariant (Section 24.6)**: `BLOCK` and `HUMAN_REVIEW` decisions are successful governance outcomes with span status `StatusCode.OK`. Span status `StatusCode.ERROR` is strictly reserved for genuine execution or integrity failures (`metrics.success == False`), eliminating false APM alerts.
+  - **Official OTLP Exporter Integration (Section 24.7)**: Standalone diagnoses use official `OTLPSpanExporter` (Protobuf over HTTP) with fallback to native JSON HTTP exporter when optional dependencies are omitted.
+  - **CI Installation & Reproducibility**: Updated `.github/workflows/ci.yml` to install `.[test,otel]` across all matrix runs, with `pytest.importorskip` for optional dependencies and pure-Python fallback verification.
+  - **Dependency Locking**: Pinned OpenTelemetry runtime dependencies in `requirements-lock.txt`.
+  - **Real Jaeger E2E in CI**: Added `otel-collector-e2e` job running a live Jaeger container, testing wire export and asserting trace indexing via Jaeger Query API.
+  - **21 Dedicated Tracing Tests**: 252 total tests in test suite passing 100%.
 
 ## [1.0.2] - 2026-09-18
 ### Decision Correctness & Network Robustness Hardening

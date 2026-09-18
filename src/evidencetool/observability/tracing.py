@@ -44,6 +44,20 @@ except ImportError:
     TraceContextTextMapPropagator = None  # type: ignore
     _HAS_OTEL = False
 
+try:
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+    from opentelemetry.sdk.resources import Resource as OtelResource
+    from opentelemetry.sdk.trace import TracerProvider as OtelTracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor as OtelSimpleSpanProcessor
+
+    _HAS_OTEL_EXPORTER = True
+except ImportError:
+    OTLPSpanExporter = None  # type: ignore
+    OtelResource = None  # type: ignore
+    OtelTracerProvider = None  # type: ignore
+    OtelSimpleSpanProcessor = None  # type: ignore
+    _HAS_OTEL_EXPORTER = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -268,7 +282,29 @@ class DiagnosisTracer:
         self._host_parent_span_id: str | None = None
         self._extracted_otel_context: Any = None
 
-        if _HAS_OTEL and otel_trace is not None:
+        self._standalone_provider: Any = None
+
+        if (
+            self.endpoint
+            and _HAS_OTEL_EXPORTER
+            and OtelTracerProvider is not None
+            and OTLPSpanExporter is not None
+            and OtelResource is not None
+        ):
+            # Standalone exporter mode using official OTLPSpanExporter:
+            # We initialize a standalone TracerProvider without mutating the global host provider.
+            try:
+                res = OtelResource.create({"service.name": self.service_name or "evidencetool", "service.version": "1.0.3"})
+                provider = OtelTracerProvider(resource=res)
+                provider.add_span_processor(OtelSimpleSpanProcessor(OTLPSpanExporter(endpoint=self.endpoint)))
+                self._standalone_provider = provider
+                self._otel_tracer = provider.get_tracer("evidencetool", "1.0.3")
+            except Exception as exc:
+                logger.warning(
+                    f"Could not initialize official OTLPSpanExporter: {exc}; falling back to native HTTP exporter."
+                )
+                self._standalone_provider = None
+        elif _HAS_OTEL and otel_trace is not None:
             self._otel_tracer = otel_trace.get_tracer("evidencetool", "1.0.3")
 
         # 4-Tier Precedence Hierarchy:
@@ -387,7 +423,8 @@ class DiagnosisTracer:
                     otel_span.set_attribute(k, v)
             if OtelStatus is not None and OtelStatusCode is not None:
                 code = OtelStatusCode.OK if status == "OK" else OtelStatusCode.ERROR
-                otel_span.set_status(OtelStatus(code, description=description or ""))
+                desc = (description or "") if code == OtelStatusCode.ERROR else ""
+                otel_span.set_status(OtelStatus(code, description=desc))
             otel_span.end()
 
         span = self._active_spans.pop(name, None)
@@ -423,7 +460,7 @@ class DiagnosisTracer:
         self.start_span("evidencetool.decision")
         self.end_span(
             "evidencetool.decision",
-            status="OK" if status == "ALLOW" else "ERROR",
+            status="OK",
             description=reason,
             attributes={
                 "evidencetool.decision.status": status,
@@ -468,7 +505,8 @@ class DiagnosisTracer:
         if root_otel is not None:
             if OtelStatus is not None and OtelStatusCode is not None:
                 code = OtelStatusCode.OK if status == "OK" else OtelStatusCode.ERROR
-                root_otel.set_status(OtelStatus(code, description=description or ""))
+                desc = (description or "") if code == OtelStatusCode.ERROR else ""
+                root_otel.set_status(OtelStatus(code, description=desc))
             root_otel.end()
 
         for leftover in list(self._active_otel_spans.values()):
@@ -494,7 +532,12 @@ class DiagnosisTracer:
         if self.trace_file:
             self.export_to_file(trace, self.trace_file)
 
-        if self.endpoint:
+        if self._standalone_provider is not None:
+            try:
+                self._standalone_provider.force_flush()
+            except Exception as exc:
+                logger.warning(f"Failed to flush standalone OTLP exporter: {exc}")
+        elif self.endpoint:
             self.export_to_otlp(trace, self.endpoint)
 
         return trace

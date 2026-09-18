@@ -27,6 +27,8 @@ OpenTelemetry Collector / Jaeger / Grafana Tempo
 2. **Host TracerProvider Non-Interference Invariant**: When executing within an already instrumented host application (e.g., an AI agent framework, FastAPI service, LangChain harness), EvidenceTool obtains its tracer via standard `trace.get_tracer("evidencetool", "1.0.3")` and **NEVER** mutates, installs, or resets the host application's global `TracerProvider`.
 3. **Trace Context Non-Authentication Invariant**: A W3C `traceparent` is strictly a telemetry correlation identifier. It carries zero authentication, authorization, or capability semantics, and cannot bypass `CapabilitySet`, probe budgets, or policy fingerprints.
 4. **Zero-Dependency Fallback**: If `opentelemetry` is not installed, EvidenceTool collects spans in-memory and exports standard OTLP/JSON via pure standard library HTTP or file output.
+5. **Span Status Semantics Invariant**: Legitimate operational decisions (`BLOCK`, `HUMAN_REVIEW`, `ALLOW`) are valid governance outcomes and produce OpenTelemetry span status `StatusCode.OK`. Span status `StatusCode.ERROR` is strictly reserved for execution or integrity failures (`metrics.success == False`), eliminating false-positive APM alarms.
+6. **Dual Exporter Pipeline**: In standalone mode with `opentelemetry-exporter-otlp-proto-http` installed, EvidenceTool transmits binary Protobuf over HTTP via `OTLPSpanExporter`. In zero-dependency mode, it seamlessly falls back to pure Python standard library JSON export over HTTP.
 
 ---
 

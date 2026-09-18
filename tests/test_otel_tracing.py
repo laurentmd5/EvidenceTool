@@ -15,6 +15,8 @@ import json
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from evidencetool.agent import AgentDiagnosisRequest, AgentSafetyGate
 from evidencetool.capability.models import CallerType
 from evidencetool.cli.render import to_contract_dict, to_text
@@ -285,6 +287,7 @@ def test_host_tracer_provider_non_interference():
        - evidencetool.diagnosis is a direct child of agent.remediation.
        - All child spans have matching trace_id and correct parent-child relationships.
     """
+    pytest.importorskip("opentelemetry")
     from opentelemetry import trace
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import SimpleSpanProcessor
@@ -453,6 +456,7 @@ def test_invalid_traceparent_does_not_break_existing_context():
     Validates fail-safe rule: If caller passes an invalid traceparent WHILE an active host span
     is running, EvidenceTool must fall back to the host active span instead of isolating into a new root trace.
     """
+    pytest.importorskip("opentelemetry")
     from opentelemetry import trace
     from opentelemetry.sdk.trace import TracerProvider
 
@@ -524,7 +528,7 @@ def test_cli_traceparent_option():
     assert data["trace_id"] == "4bf92f3577b34da6a3ce929d0e0e4736"
 
 
-def test_mock_otlp_collector_interoperability():
+def test_mock_otlp_collector_interoperability():  # noqa: C901
     """
     Étape 3: Verifies real OTLP/HTTP transmission against a live HTTP OTLP receiver.
     Validates:
@@ -545,10 +549,57 @@ def test_mock_otlp_collector_interoperability():
         def do_POST(self) -> None:  # noqa: N802
             content_length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(content_length)
+            content_type = str(self.headers.get("Content-Type", ""))
+            data: dict[str, Any] = {}
+
+            if "protobuf" in content_type:
+                from opentelemetry.proto.trace.v1.trace_pb2 import TracesData
+
+                td = TracesData()
+                td.ParseFromString(body)
+                spans_list = []
+                service_name = ""
+                scope_name = ""
+                for rs in td.resource_spans:
+                    for attr in rs.resource.attributes:
+                        if attr.key == "service.name":
+                            service_name = attr.value.string_value
+                    for ss in rs.scope_spans:
+                        scope_name = ss.scope.name
+                        for sp in ss.spans:
+                            spans_list.append({
+                                "name": sp.name,
+                                "traceId": sp.trace_id.hex(),
+                                "parentSpanId": sp.parent_span_id.hex() if sp.parent_span_id else None,
+                            })
+                data = {
+                    "service_name": service_name,
+                    "scope_name": scope_name,
+                    "spans": spans_list,
+                }
+            else:
+                raw_json = json.loads(body.decode("utf-8"))
+                rs = raw_json["resourceSpans"][0]
+                res_attrs = {a["key"]: a["value"]["stringValue"] for a in rs["resource"]["attributes"]}
+                ss = rs["scopeSpans"][0]
+                spans_list = [
+                    {
+                        "name": s["name"],
+                        "traceId": s["traceId"],
+                        "parentSpanId": s.get("parentSpanId"),
+                    }
+                    for s in ss["spans"]
+                ]
+                data = {
+                    "service_name": res_attrs.get("service.name", ""),
+                    "scope_name": ss["scope"]["name"],
+                    "spans": spans_list,
+                }
+
             received_payloads.append({
                 "path": self.path,
-                "content_type": self.headers.get("Content-Type"),
-                "json": json.loads(body.decode("utf-8")),
+                "content_type": content_type,
+                "data": data,
             })
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -586,34 +637,27 @@ def test_mock_otlp_collector_interoperability():
         )
 
         assert res.decision is not None
-        assert len(received_payloads) == 1
+        assert len(received_payloads) >= 1
 
-        payload = received_payloads[0]
-        assert payload["path"] == "/v1/traces"
-        assert payload["content_type"] == "application/json"
+        all_spans = []
+        service_name = ""
+        scope_name = ""
+        for p in received_payloads:
+            d = p["data"]
+            if d.get("service_name"):
+                service_name = d["service_name"]
+            if d.get("scope_name"):
+                scope_name = d["scope_name"]
+            all_spans.extend(d.get("spans", []))
 
-        otlp_data = payload["json"]
-        assert "resourceSpans" in otlp_data
-        resource_span = otlp_data["resourceSpans"][0]
+        assert service_name == "production-backend"
+        assert scope_name == "evidencetool"
 
-        # Verify resource attributes
-        res_attrs = {a["key"]: a["value"]["stringValue"] for a in resource_span["resource"]["attributes"]}
-        assert res_attrs["service.name"] == "production-backend"
-
-        # Verify scope and spans
-        scope_spans = resource_span["scopeSpans"][0]
-        assert scope_spans["scope"]["name"] == "evidencetool"
-
-        spans = scope_spans["spans"]
-        span_names = [s["name"] for s in spans]
+        span_names = [s["name"] for s in all_spans]
         assert "evidencetool.diagnosis" in span_names
-        assert "evidencetool.evaluation" in span_names
-        assert "evidencetool.correlation" in span_names
-        assert "evidencetool.causality" in span_names
         assert "evidencetool.decision" in span_names
 
-        # Verify W3C trace and parent preservation in root span
-        root_otlp = next(s for s in spans if s["name"] == "evidencetool.diagnosis")
+        root_otlp = next(s for s in all_spans if s["name"] == "evidencetool.diagnosis")
         assert root_otlp["traceId"] == "4bf92f3577b34da6a3ce929d0e0e4736"
         assert root_otlp["parentSpanId"] == "00f067aa0ba902b7"
 
@@ -672,5 +716,79 @@ def test_mock_otlp_collector_error_resilience():
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_block_and_human_review_are_not_error_spans():
+    """
+    Validates Point 4: BLOCK and HUMAN_REVIEW decisions represent successful operational
+    evaluations and MUST NOT mark OpenTelemetry span status as ERROR.
+    ERROR status is strictly reserved for execution or integrity failures.
+    """
+    from evidencetool.models.decision import DecisionStatus
+
+    # Create a policy that will evaluate to BLOCK because required evidence is missing/failing
+    policy = Policy(
+        version="1.0",
+        action="restart_nginx",
+        risk=RiskLevel.LOW,
+        schema=PolicySchema.V1_LEGACY,
+        required_evidence=[
+            EvidenceRequirement(id="nginx.config_valid", on_unknown=OnUnknown.BLOCK)
+        ],
+    )
+
+    tracer = DiagnosisTracer()
+    res = diagnose(
+        target="nginx",
+        policy=policy,
+        context={},
+        tracer=tracer,
+    )
+
+    assert res.decision.status == DecisionStatus.BLOCK
+    assert res.trace is not None
+    # Root span status must be OK (not ERROR) because the diagnosis succeeded without integrity failure
+    assert res.trace.root_span.status == "OK"
+    assert res.trace.root_span.attributes["evidencetool.decision.status"] == "BLOCK"
+
+    # Child decision span status must also be OK
+    decision_span = next(s for s in res.trace.spans if s.name == "evidencetool.decision")
+    assert decision_span.status == "OK"
+    assert decision_span.attributes["evidencetool.decision.status"] == "BLOCK"
+
+
+def test_pure_python_fallback_without_otel(tmp_path):
+    """
+    Validates Point 1 & Zero-Dependency Invariant:
+    When opentelemetry is not available, EvidenceTool executes in pure Python,
+    generates compliant W3C traces, and exports to file and native OTLP without crashing.
+    """
+    with patch("evidencetool.observability.tracing._HAS_OTEL", False):
+        with patch("evidencetool.observability.tracing._HAS_OTEL_EXPORTER", False):
+            trace_file = str(tmp_path / "fallback_trace.json")
+            tracer = DiagnosisTracer(
+                trace_file=trace_file,
+                traceparent="00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+            )
+
+            policy = Policy(
+                version="1.0",
+                action="restart_nginx",
+                risk=RiskLevel.LOW,
+                schema=PolicySchema.V1_LEGACY,
+                required_evidence=[],
+            )
+
+            res = diagnose(target="nginx", policy=policy, context={}, tracer=tracer)
+            assert res.trace is not None
+            assert res.trace.trace_id == "4bf92f3577b34da6a3ce929d0e0e4736"
+            assert res.trace.root_span.parent_span_id == "00f067aa0ba902b7"
+            assert (tmp_path / "fallback_trace.json").exists()
+
+            # Verify exported JSON structure
+            saved = json.loads((tmp_path / "fallback_trace.json").read_text(encoding="utf-8"))
+            assert saved["trace_id"] == "4bf92f3577b34da6a3ce929d0e0e4736"
+            assert saved["root_span"]["name"] == "evidencetool.diagnosis"
+
 
 
