@@ -48,7 +48,9 @@ extract_decision() {
 }
 
 echo "--- Healthy pod ---"
-OUT="$(run_diagnose healthy || true)"
+HEALTHY_POD="$(kubectl -n "$NAMESPACE" get pods -l app=healthy -o jsonpath='{.items[0].metadata.name}')"
+[ -n "$HEALTHY_POD" ] || { echo "FAIL: healthy pod name was not found"; exit 1; }
+OUT="$(run_diagnose "$HEALTHY_POD" || true)"
 [ "$(printf '%s' "$OUT" | extract_decision status)" = ALLOW ] || {
   echo "Healthy pod diagnostic output:"
   printf '%s\n' "$OUT"
@@ -67,8 +69,12 @@ for attempt in $(seq 1 30); do
 done
 
 echo "--- CrashLoopBackOff pod ---"
-OUT="$(run_diagnose crashloop || true)"
+CRASHLOOP_POD="$(kubectl -n "$NAMESPACE" get pods -l app=crashloop -o jsonpath='{.items[0].metadata.name}')"
+[ -n "$CRASHLOOP_POD" ] || { echo "FAIL: crashloop pod name was not found"; exit 1; }
+OUT="$(run_diagnose "$CRASHLOOP_POD" || true)"
 [ "$(printf '%s' "$OUT" | extract_decision status)" = BLOCK ] || {
+  echo "CrashLoopBackOff diagnostic output:"
+  printf '%s\n' "$OUT"
   echo "FAIL: crashloop pod was not BLOCK"; exit 1;
 }
 printf '%s' "$OUT" | "$PYTHON_CMD" -c 'import json,sys; d=json.load(sys.stdin); assert "K8S_CRASH_LOOP_BACKOFF" in d["decision"]["reason"]'
