@@ -15,6 +15,7 @@ dependencies = [
 [project.optional-dependencies]
 test = [
     "pytest==9.0.3",
+    "pytest-cov==6.0.0",
     "cryptography==50.0.0",
     "jsonschema==4.23.0",
 ]
@@ -24,7 +25,6 @@ dev = [
     "types-PyYAML==6.0.12.20241230",
     "bandit==1.8.0",
     "pip-audit==2.7.3",
-    "pytest-cov==6.0.0",
 ]
 
 [project.scripts]
