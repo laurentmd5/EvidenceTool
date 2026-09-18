@@ -103,6 +103,31 @@ def diagnose(  # noqa: C901
                     raise CapabilityDenied(
                         f"Provider '{namespace}' returned invalid observation '{observation.id}'."
                     )
+            expected_ids = {
+                req.id for req in policy.required_evidence if req.id.startswith(f"{namespace}.")
+            }
+            if catalog:
+                for sit in catalog:
+                    if sit.id in policy.allow or sit.id in policy.blocked_by:
+                        expected_ids.update(
+                            ev_id for ev_id in sit.signature if ev_id.startswith(f"{namespace}.")
+                        )
+            collected_ids = {observation.id for observation in collected}
+            for missing_id in sorted(expected_ids - collected_ids):
+                from evidencetool.models.observation import Observation
+
+                collected.append(
+                    Observation(
+                        id=missing_id,
+                        source=namespace,
+                        category="system",
+                        collector="diagnose_engine",
+                        method="partial_provider_collection",
+                        value={"status": "UNKNOWN"},
+                        message=f"Provider '{namespace}' did not return evidence '{missing_id}'.",
+                        observed_at=datetime.now(timezone.utc),
+                    )
+                )
             observations += collected
         except CapabilityDenied as exc:
             from evidencetool.models.observation import Observation
