@@ -608,3 +608,37 @@ Uncertainty must be local to the hypothesis it affects:
 
 ### 23.2 Complete Fallback Invariant
 When a provider execution fails or is denied by capability policy, fallback `UNKNOWN` observations must be generated for all evidence items required by situation signatures in the active catalog, ensuring situational policies always receive explicit evidence rather than missing entries. Absence of evidence always resolves to `UNKNOWN`, never to an unverified assumption.
+
+---
+
+## 24. OpenTelemetry Mode B Outbound Tracing Contract (V1.0.3 Contract)
+
+### 24.1 Architecture & Trace Topology
+EvidenceTool produces distributed OpenTelemetry traces mapping its internal operational reasoning pipeline. Each execution generates a W3C TraceContext compliant trace consisting of hierarchical spans:
+- `evidencetool.diagnosis` (Root span): Encompasses total diagnostic run.
+  - `evidencetool.provider.<namespace>`: Measures individual provider collection latency, observation counts, and error/capability denials.
+  - `evidencetool.evaluation`: Measures evaluation latency and breakdown of PASS / FAIL / UNKNOWN evidence.
+  - `evidencetool.correlation`: Measures multi-signal situation signature matching and unresolved evidence tracking.
+  - `evidencetool.causality`: Measures causal tree reconstruction, identifying root causes, propagation chains, and precluded outage hypotheses.
+  - `evidencetool.decision`: Records the definitive governance verdict (`ALLOW`, `BLOCK`, `HUMAN_REVIEW`), blocking evidence, and policy action.
+
+### 24.2 Semantic Attributes Specification
+| Attribute | Scope | Type | Description |
+|:---|:---|:---|:---|
+| `evidencetool.target` | Root | String | Diagnosed operational target (e.g. `nginx`, `network`). |
+| `evidencetool.policy.action` | Root / Decision | String | Governed remediation action. |
+| `evidencetool.decision.status` | Root / Decision | String | `ALLOW`, `BLOCK`, or `HUMAN_REVIEW`. |
+| `evidencetool.decision.reason` | Root / Decision | String | Deterministic human-readable explanation. |
+| `evidencetool.decision.blocking_evidence` | Root / Decision | Array[String] | IDs of evidence items triggering rejection. |
+| `evidencetool.authority.caller_id` | Root | String | Identity of caller or AI agent requesting diagnosis. |
+| `evidencetool.authority.caller_type` | Root | String | `AI_AGENT`, `HUMAN_OPERATOR`, `CI_PIPELINE`, `CONTROLLER`. |
+| `evidencetool.authority.session_id` | Root | String | Agent or workflow session identifier. |
+| `evidencetool.causality.status` | Causality | String | `ROOT_CAUSE_IDENTIFIED`, `ROOT_CAUSE_CONSTRAINED`, `ROOT_CAUSE_UNKNOWN`. |
+| `evidencetool.causality.primary_root_cause` | Causality | String | Primary root cause situation ID. |
+| `evidencetool.causality.chain` | Causality | Array[String] | Sequence of causal propagation steps. |
+| `evidencetool.causality.precluded` | Causality | Array[String] | Outage hypotheses formally refuted by healthy signals. |
+
+### 24.3 Zero-Dependency & Export Invariants
+1. **Zero Hard-Dependency**: Core EvidenceTool operates with pure standard library Python. It does not require `opentelemetry` to be installed to generate W3C trace IDs, record spans, or export OTLP/JSON.
+2. **OTLP/HTTP & File Export**: Traces can be exported directly via OTLP/HTTP JSON to OpenTelemetry Collectors (Jaeger, Tempo, Datadog) or saved locally as JSON files.
+3. **Resilient Export**: Network or exporter failures when transmitting traces never abort or corrupt the primary diagnostic evaluation. Export errors are caught and logged without side effects.

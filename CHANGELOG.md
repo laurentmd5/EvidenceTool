@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.3] - 2026-09-18
+### OpenTelemetry Mode B Outbound Tracing
+- **Native Distributed Tracing (`Mode B`)**: Emits structured OpenTelemetry traces mapping EvidenceTool's entire operational reasoning pipeline:
+  - Root span: `evidencetool.diagnosis`
+  - Child spans: `evidencetool.provider.<namespace>`, `evidencetool.evaluation`, `evidencetool.correlation`, `evidencetool.causality`, `evidencetool.decision`.
+- **Zero Hard-Dependency Design**: Pure Python `DiagnosisTracer` generating W3C-compliant trace IDs, span IDs, and OTLP ResourceSpans JSON without mandatory external dependencies. Optional dependency group `[project.optional-dependencies] otel = [...]` declared.
+- **OTLP/HTTP & Local File Export**: Added `--otel-endpoint` and `--otel-trace-file` CLI options, plus automatic activation via standard `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_ENABLE_TRACING` environment variables.
+- **AI-Agent Gateway Trace Correlation**: `AgentSafetyGate.evaluate()` accepts a `tracer`, enriches root spans with caller authority metadata (`caller_id`, `caller_type`, `session_id`), and exposes `result.trace_id`.
+- **JSON Output Contract**: Updated `schemas/diagnosis-result.schema.json` and CLI JSON renderer with `trace_id`.
+- **Comprehensive Test Suite**: Added `tests/test_otel_tracing.py` with 8 test cases covering span lifecycles, OTLP serialization, OTLP HTTP/file exports, fault tolerance, and agent gate integration (239 tests passing 100%).
+
 ## [1.0.2] - 2026-09-18
 ### Decision Correctness & Network Robustness Hardening
 - **Local Uncertainty Invariant (`P0 / HIGH-02`)**: Replaced global boolean ambiguity with per-situation `SituationEvaluation`. Unresolved evidence in unrelated domains (e.g. Redis) no longer contaminates clean, verified decisions in the target domain (e.g. Nginx).

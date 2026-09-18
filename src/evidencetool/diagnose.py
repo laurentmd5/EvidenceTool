@@ -20,11 +20,12 @@ from evidencetool.decision.engine import decide
 from evidencetool.decision.integrity import validate_decision_integrity
 from evidencetool.evidence.evaluator import evaluate_observation
 from evidencetool.models.correlation import Situation
-from evidencetool.models.decision import Decision
-from evidencetool.models.evidence import Evidence
+from evidencetool.models.decision import Decision, DecisionStatus
+from evidencetool.models.evidence import Evidence, EvidenceStatus
 from evidencetool.models.incident import Incident, OperationalIncident
 from evidencetool.models.policy import Policy
 from evidencetool.observability.metrics import MetricsData
+from evidencetool.observability.tracing import DiagnosisTracer, TraceRecord
 from evidencetool.recommendation import recommend
 
 logger = logging.getLogger(__name__)
@@ -40,6 +41,7 @@ class DiagnosisResult:
     metrics: MetricsData
     authority: AuthorityMetadata | None = None
     causality: CausalExplanation | None = None
+    trace: TraceRecord | None = None
 
 
 def diagnose(  # noqa: C901
@@ -49,12 +51,27 @@ def diagnose(  # noqa: C901
     catalog: list[Situation] | None = None,
     execution: ExecutionContext | None = None,
     causality_catalog: list[CausalRule] | None = None,
+    tracer: DiagnosisTracer | None = None,
 ) -> DiagnosisResult:
     from evidencetool.providers.base import ProviderContext
     from evidencetool.providers.registry import get_provider, get_provider_trust, load_all_providers
 
     # Ensure all built-in providers are registered
     load_all_providers()
+
+    if tracer is None:
+        import os
+
+        if os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT") or os.getenv("OTEL_ENABLE_TRACING", "").lower() in ("1", "true"):
+            tracer = DiagnosisTracer()
+
+    if tracer:
+        tracer.start_root_span(target=target, policy_action=policy.action)
+        if execution and execution.identity and tracer.root_span:
+            tracer.root_span.set_attribute("evidencetool.authority.caller_id", execution.identity.caller_id)
+            tracer.root_span.set_attribute("evidencetool.authority.caller_type", execution.identity.caller_type.value)
+            if execution.identity.session_id:
+                tracer.root_span.set_attribute("evidencetool.authority.session_id", execution.identity.session_id)
 
     m = MetricsData()
     start_total = time.time()
@@ -80,6 +97,8 @@ def diagnose(  # noqa: C901
     # 2. Instantiate and run only the needed providers
     provider_context = ProviderContext(context, execution=execution)
     for namespace in sorted(needed_namespaces):
+        if tracer:
+            tracer.start_span(f"evidencetool.provider.{namespace}")
         t0 = time.time()
         try:
             if execution and not execution.capabilities.allows_provider(namespace):
@@ -129,6 +148,12 @@ def diagnose(  # noqa: C901
                     )
                 )
             observations += collected
+            if tracer:
+                tracer.end_span(
+                    f"evidencetool.provider.{namespace}",
+                    status="OK",
+                    attributes={"evidencetool.provider.observations_count": len(collected)},
+                )
         except CapabilityDenied as exc:
             from evidencetool.models.observation import Observation
 
@@ -150,6 +175,13 @@ def diagnose(  # noqa: C901
                         message=str(exc),
                         observed_at=datetime.now(timezone.utc),
                     )
+                )
+            if tracer:
+                tracer.end_span(
+                    f"evidencetool.provider.{namespace}",
+                    status="ERROR",
+                    description=str(exc),
+                    attributes={"evidencetool.provider.capability_denied": True},
                 )
         except Exception as exc:
             import traceback
@@ -177,10 +209,19 @@ def diagnose(  # noqa: C901
                         observed_at=datetime.now(timezone.utc),
                     )
                 )
+            if tracer:
+                tracer.end_span(
+                    f"evidencetool.provider.{namespace}",
+                    status="ERROR",
+                    description=str(exc),
+                    attributes={"evidencetool.provider.error": str(exc)},
+                )
         m.provider_durations[namespace] = time.time() - t0
 
     # 3. Evaluate observations
     t0 = time.time()
+    if tracer:
+        tracer.start_span("evidencetool.evaluation")
     max_ages = {
         req.id: req.max_age for req in policy.required_evidence if req.max_age is not None
     }
@@ -189,6 +230,17 @@ def diagnose(  # noqa: C901
 
     for e in evidence:
         m.evidence_status_counts[e.status] += 1
+
+    if tracer:
+        tracer.end_span(
+            "evidencetool.evaluation",
+            attributes={
+                "evidencetool.evidence.total": len(evidence),
+                "evidencetool.evidence.pass": m.evidence_status_counts.get(EvidenceStatus.PASS, 0),
+                "evidencetool.evidence.fail": m.evidence_status_counts.get(EvidenceStatus.FAIL, 0),
+                "evidencetool.evidence.unknown": m.evidence_status_counts.get(EvidenceStatus.UNKNOWN, 0),
+            },
+        )
 
     capability_violation = any(
         e.observation.value.get("capability_denied") is True
@@ -204,8 +256,29 @@ def diagnose(  # noqa: C901
     from evidencetool.decision.correlation import correlate_state
     from evidencetool.models.policy import PolicySchema
 
+    if tracer:
+        tracer.start_span("evidencetool.correlation")
     state = correlate_state(evidence, catalog or [])
+    if tracer:
+        tracer.end_span(
+            "evidencetool.correlation",
+            attributes={
+                "evidencetool.situations.matched": len(state.situations),
+                "evidencetool.situations.unresolved": len(state.unresolved_evidence),
+            },
+        )
+
+    if tracer:
+        tracer.start_span("evidencetool.causality")
     causality_explanation = reconstruct_causality(evidence, state, causality_catalog or [])
+    if tracer:
+        primary_cause_id = causality_explanation.primary_root_cause
+        tracer.record_causality(
+            causality_status=causality_explanation.status.value,
+            primary_root_cause=primary_cause_id,
+            causal_chain=list(causality_explanation.causal_chain),
+            precluded_hypotheses=causality_explanation.precluded_hypotheses,
+        )
 
     if policy.schema == PolicySchema.V2_SITUATIONAL:
         decision = decide(state, policy)
@@ -214,6 +287,14 @@ def diagnose(  # noqa: C901
     m.decision_duration = time.time() - t0
 
     m.decision_status = decision.status
+
+    if tracer:
+        tracer.record_decision(
+            status=decision.status.value,
+            reason=decision.reason,
+            blocking_evidence=list(decision.blocking_evidence),
+            action=policy.action,
+        )
 
     # 5. Integrity Check
     integrity_result = validate_decision_integrity(decision, policy, evidence, state=state)
@@ -250,6 +331,11 @@ def diagnose(  # noqa: C901
 
     m.total_duration = time.time() - start_total
 
+    trace_record = None
+    if tracer:
+        trace_status = "OK" if (m.success and decision.status == DecisionStatus.ALLOW) else "ERROR"
+        trace_record = tracer.finish(status=trace_status, description=decision.reason)
+
     return DiagnosisResult(
         incident=operational_incident,
         evidence=evidence,
@@ -259,4 +345,5 @@ def diagnose(  # noqa: C901
         metrics=m,
         authority=authority_meta,
         causality=causality_explanation,
+        trace=trace_record,
     )

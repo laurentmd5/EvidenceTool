@@ -66,3 +66,10 @@ class AgentDiagnosisResult:
                 "probes_remaining": self.authority.probes_remaining,
             },
         }
+
+    @property
+    def trace_id(self) -> str | None:
+        """Trace ID of the diagnostic execution if tracing was enabled."""
+        if self.raw_diagnosis and self.raw_diagnosis.trace:
+            return self.raw_diagnosis.trace.trace_id
+        return None

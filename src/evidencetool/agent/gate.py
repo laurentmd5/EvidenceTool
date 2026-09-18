@@ -25,6 +25,7 @@ from evidencetool.models.correlation import Situation
 from evidencetool.models.decision import DecisionStatus
 from evidencetool.models.evidence import EvidenceStatus
 from evidencetool.models.policy import Policy
+from evidencetool.observability.tracing import DiagnosisTracer
 from evidencetool.policy.loader import load_policy
 
 
@@ -80,7 +81,11 @@ class AgentSafetyGate:
         else:
             self._default_policy = None
 
-    def evaluate(self, request: AgentDiagnosisRequest) -> AgentDiagnosisResult:
+    def evaluate(
+        self,
+        request: AgentDiagnosisRequest,
+        tracer: DiagnosisTracer | None = None,
+    ) -> AgentDiagnosisResult:
         """
         Evaluates an agent's proposed action against operational evidence and policies.
         """
@@ -133,6 +138,7 @@ class AgentSafetyGate:
             catalog=self._catalog,
             execution=exec_ctx,
             causality_catalog=self._causality_catalog,
+            tracer=tracer,
         )
 
         # Extract root cause and supporting evidence

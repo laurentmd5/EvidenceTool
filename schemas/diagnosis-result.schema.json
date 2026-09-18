@@ -97,6 +97,9 @@
         "candidate_causes": { "type": "array", "items": { "type": "string" } },
         "confidence": { "type": "string" }
       }
+    },
+    "trace_id": {
+      "type": ["string", "null"]
     }
   }
 }

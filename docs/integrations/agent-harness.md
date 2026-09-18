@@ -69,3 +69,36 @@ if not integrity.is_valid:
 
 ## 4. HUMAN_REVIEW
 If the engine returns `HUMAN_REVIEW`, the agent MUST pause execution and request explicit permission from a human operator. Treating `HUMAN_REVIEW` as a silent `ALLOW` violates the core safety invariants of the product contract.
+
+## 5. Distributed Tracing & APM Auditability (OpenTelemetry Mode B)
+For observability, governance, and audit trails in enterprise agent mesh architectures, EvidenceTool natively exports distributed traces over standard OTLP/HTTP.
+
+The agent harness can correlate its own LLM reasoning spans with EvidenceTool's operational reasoning spans:
+
+```python
+from evidencetool.agent import AgentSafetyGate, AgentDiagnosisRequest
+from evidencetool.observability.tracing import DiagnosisTracer
+
+# Optional: Instantiate a tracer to stream spans to Jaeger / Grafana Tempo
+tracer = DiagnosisTracer(
+    service_name="agent-safety-gateway",
+    endpoint="http://collector.monitoring:4318/v1/traces",
+)
+
+result = gate.evaluate(request, tracer=tracer)
+
+# Retrieve the W3C trace ID to attach to agent audit logs or ticketing systems
+if result.trace_id:
+    print(f"Distributed Trace ID: {result.trace_id}")
+    # Inspect trace spans in Jaeger:
+    # http://jaeger:16686/trace/{result.trace_id}
+```
+
+The resulting trace contains:
+- `evidencetool.diagnosis`: Root span tagged with `evidencetool.authority.caller_id` (`agent_id`) and `session_id`.
+- `evidencetool.provider.<namespace>`: Latency and observations per infrastructure probe.
+- `evidencetool.evaluation`: Evaluated evidence distribution.
+- `evidencetool.correlation`: Evaluated situational hypotheses.
+- `evidencetool.causality`: Primary root cause and causal propagation chain.
+- `evidencetool.decision`: Deterministic verdict (`ALLOW` / `BLOCK`), reason, and blocking evidence.
+

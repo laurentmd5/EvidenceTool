@@ -57,6 +57,8 @@ def to_contract_dict(result: DiagnosisResult) -> dict[str, typing.Any]:
             "probes_consumed": result.authority.probes_consumed,
             "probes_remaining": result.authority.probes_remaining,
         }
+    if result.trace is not None:
+        res["trace_id"] = result.trace.trace_id
     return res
 
 
@@ -85,5 +87,9 @@ def to_text(result: DiagnosisResult) -> str:
 
     lines.append("")
     lines.append(f"Recommendation:\n{result.recommendation}")
+
+    if result.trace is not None:
+        lines.append("")
+        lines.append(f"Trace ID:\n{result.trace.trace_id}")
 
     return "\n".join(lines)

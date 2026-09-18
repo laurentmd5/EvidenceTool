@@ -70,6 +70,8 @@ def cli() -> None:
     help="Path to a catalog YAML file containing situation signatures.",
 )
 @click.option("--metrics-file", default=None, help="Path to write Prometheus textfile metrics (e.g. ./evidencetool.prom)")
+@click.option("--otel-endpoint", default=None, help="OpenTelemetry OTLP/HTTP collector endpoint (e.g. http://localhost:4318/v1/traces)")
+@click.option("--otel-trace-file", default=None, help="Path to write diagnostic OpenTelemetry trace JSON (e.g. trace.json)")
 def diagnose_cmd(  # noqa: C901
     target: str,
     output: str,
@@ -81,6 +83,8 @@ def diagnose_cmd(  # noqa: C901
     capability_policy: str | None,
     metrics_file: str | None,
     catalog: str | None,
+    otel_endpoint: str | None = None,
+    otel_trace_file: str | None = None,
 ) -> None:
     """Diagnose an incident for TARGET."""
     if not policy_path:
@@ -154,7 +158,25 @@ def diagnose_cmd(  # noqa: C901
         transport_host=host,
         capabilities=capabilities or ExecutionContext().capabilities,
     )
-    result = diagnose(target, policy, context, catalog=catalog_situations, execution=execution)
+
+    tracer = None
+    import os
+    if otel_endpoint or otel_trace_file or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT") or os.getenv("OTEL_ENABLE_TRACING", "").lower() in ("1", "true"):
+        from evidencetool.observability.tracing import DiagnosisTracer
+
+        tracer = DiagnosisTracer(
+            endpoint=otel_endpoint,
+            trace_file=otel_trace_file,
+        )
+
+    result = diagnose(
+        target,
+        policy,
+        context,
+        catalog=catalog_situations,
+        execution=execution,
+        tracer=tracer,
+    )
 
     if metrics_file:
         from evidencetool.observability.metrics import write_metrics

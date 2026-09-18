@@ -179,7 +179,39 @@ else:
     print(f"Action BLOCKED: {result.reason}")
     print(f"Root cause evidence: {result.root_cause_evidence}")
     print(f"Recommendation: {result.recommendation}")
+    if result.trace_id:
+        print(f"OTel Trace ID: {result.trace_id}")
 ```
+
+## OpenTelemetry Tracing (Mode B Outbound)
+
+EvidenceTool emits structured, distributed OpenTelemetry traces mapping its entire operational reasoning pipeline to APM/tracing backends (Jaeger, Grafana Tempo, Datadog):
+- **Root Span**: `evidencetool.diagnosis`
+- **Child Spans**:
+  - `evidencetool.provider.<namespace>` (collection time & observation counts)
+  - `evidencetool.evaluation` (PASS / FAIL / UNKNOWN distribution)
+  - `evidencetool.correlation` (multi-signal situation matching)
+  - `evidencetool.causality` (root cause, causal propagation chain, precluded hypotheses)
+  - `evidencetool.decision` (governance verdict & blocking evidence)
+
+### CLI Tracing Options
+
+```bash
+# 1. Export trace to an OpenTelemetry collector over standard OTLP/HTTP JSON:
+evidencetool diagnose nginx \
+  --otel-endpoint http://localhost:4318/v1/traces
+
+# 2. Export trace to a local JSON file for auditing or offline analysis:
+evidencetool diagnose nginx \
+  --otel-trace-file /var/log/evidencetool/traces/diagnosis-01.json
+
+# 3. Transparent activation via standard environment variables:
+export OTEL_EXPORTER_OTLP_ENDPOINT="http://tempo.monitoring:4318"
+export OTEL_SERVICE_NAME="evidencetool-prod"
+evidencetool diagnose nginx
+```
+
+Zero hard-dependency overhead: operates with pure standard library Python or can be paired with optional official SDK bindings (`pip install "evidencetool[otel]"`).
 
 ## Example output
 

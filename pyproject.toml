@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "evidencetool"
-version = "1.0.2"
+version = "1.0.3"
 description = "A read-only operational evidence and decision layer for diagnosing production incidents."
 requires-python = ">=3.10"
 dependencies = [
@@ -25,6 +25,10 @@ dev = [
     "types-PyYAML==6.0.12.20241230",
     "bandit==1.8.0",
     "pip-audit==2.7.3",
+]
+otel = [
+    "opentelemetry-api>=1.20.0",
+    "opentelemetry-sdk>=1.20.0",
 ]
 
 [project.scripts]
