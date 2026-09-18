@@ -214,10 +214,24 @@ jobs:
 
       - name: Run EvidenceTool Diagnosis Exporting to Real Jaeger
         run: |
+          set +e
           evidencetool diagnose nginx \
             --otel-endpoint http://localhost:4318/v1/traces \
             --traceparent 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01 \
+            -a service=nginx \
             --output json
+          status=$?
+          set -e
+          # BLOCK is an expected business result for the fixture's missing TLS files.
+          # Only integrity failures should fail this observability smoke test.
+          if [ "$status" -eq 3 ]; then
+            echo "EvidenceTool returned an integrity violation." >&2
+            exit 3
+          fi
+          if [ "$status" -ne 0 ] && [ "$status" -ne 1 ] && [ "$status" -ne 2 ]; then
+            echo "Unexpected EvidenceTool exit code: $status" >&2
+            exit "$status"
+          fi
 
       - name: Query Jaeger API to Verify Ingestion and Indexing
         run: |

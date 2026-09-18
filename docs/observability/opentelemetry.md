@@ -142,7 +142,9 @@ docker compose -f docker-compose.otel.yaml up -d
 
 Run an EvidenceTool diagnosis sending traces to Jaeger:
 ```bash
-evidencetool diagnose nginx --otel-endpoint http://localhost:4318/v1/traces
+evidencetool diagnose nginx \
+  -a service=nginx \
+  --otel-endpoint http://localhost:4318/v1/traces
 ```
 
 Open `http://localhost:16686` in your browser to inspect the full operational reasoning trace (`evidencetool.diagnosis`, `evidencetool.provider.*`, `evidencetool.causality`, and `evidencetool.decision`).
