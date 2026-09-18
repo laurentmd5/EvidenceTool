@@ -1,0 +1,254 @@
+name: EvidenceTool CI
+
+on:
+  push:
+    branches: [ "main", "dev" ]
+  pull_request:
+    branches: [ "main", "dev" ]
+
+jobs:
+  quality-and-security:
+    name: Lint, Types & Security
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -e ".[dev,test,otel]"
+
+      - name: Code Quality (Ruff)
+        run: ruff check src/ tests/
+
+      - name: Static Type Checking (Mypy Strict)
+        run: mypy src/
+
+      - name: Security SAST Scan (Bandit)
+        run: bandit -r src/ -c pyproject.toml
+
+      - name: Dependency Audit (pip-audit)
+        run: pip-audit
+
+  test-matrix:
+    name: Test Suite (Python ${{ matrix.python-version }})
+    needs: quality-and-security
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -e ".[test,otel]"
+
+      - name: Run Test Suite (Pytest with Coverage)
+        run: |
+          pytest --cov=evidencetool --cov-report=xml --cov-report=term-missing tests/
+
+      - name: Verify JSON Output Schema & Live CLI Contract Validity
+        run: |
+          # 1. Verify Draft-07 Schema Definition Syntax
+          python -c "
+          import jsonschema, json
+          schema = json.load(open('schemas/diagnosis-result.schema.json'))
+          jsonschema.Draft7Validator.check_schema(schema)
+          print('Schema definition is valid Draft-07!')
+          "
+          # 2. Verify Live CLI JSON Output Conformance Against Contract
+          python -c "
+          import subprocess, json, jsonschema
+          schema = json.load(open('schemas/diagnosis-result.schema.json'))
+          res = subprocess.run(['evidencetool', 'diagnose', 'network', '--output', 'json'], capture_output=True, text=True)
+          data = json.loads(res.stdout)
+          jsonschema.validate(instance=data, schema=schema)
+          print('Live CLI JSON output strictly complies with diagnosis-result.schema.json!')
+          "
+
+  e2e-linux-systemd:
+    name: E2E Linux, systemd & Nginx
+    needs: test-matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Ubuntu and Debian systemd E2E
+        run: bash tests/e2e/run.sh
+
+  e2e-docker:
+    name: E2E Docker provider
+    needs: test-matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install runtime package
+        run: pip install -e .
+
+      - name: Run Docker lifecycle E2E
+        run: bash tests/e2e/run_docker_e2e.sh
+
+  e2e-data:
+    name: E2E data and dependency providers
+    needs: test-matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install runtime package
+        run: pip install -e .
+
+      - name: Run data and dependency E2E
+        run: bash tests/e2e/run_data_e2e.sh
+
+  e2e-kubernetes:
+    name: E2E Kubernetes provider
+    needs: test-matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install runtime package
+        run: pip install -e .
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: 'v1.37.0'
+
+      - name: Set up Minikube
+        uses: medyagh/setup-minikube@latest
+
+      - name: Run Kubernetes Minikube E2E
+        run: bash tests/e2e/run_k8s_e2e.sh
+
+  e2e-ssh-transport:
+    name: E2E SSH transport contract
+    needs: test-matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install test dependencies
+        run: pip install -e ".[test]"
+
+      - name: Run SSH transport tests
+        run: pytest tests/test_ssh_transport.py -q
+
+  otel-collector-e2e:
+    name: OpenTelemetry Live Jaeger E2E
+    needs: test-matrix
+    runs-on: ubuntu-latest
+    services:
+      jaeger:
+        image: jaegertracing/all-in-one:1.57
+        ports:
+          - 4318:4318
+          - 16686:16686
+        env:
+          COLLECTOR_OTLP_ENABLED: "true"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install EvidenceTool with OTel
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -e ".[test,otel]"
+
+      - name: Wait for Jaeger Service Readiness
+        run: |
+          timeout 30 bash -c 'until curl -s http://localhost:16686 > /dev/null; do sleep 1; done'
+          echo "Jaeger is ready!"
+
+      - name: Run EvidenceTool Diagnosis Exporting to Real Jaeger
+        run: |
+          set +e
+          evidencetool diagnose nginx \
+            --otel-endpoint http://localhost:4318/v1/traces \
+            --traceparent 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01 \
+            -a service=nginx \
+            --output json
+          status=$?
+          set -e
+          # BLOCK is an expected business result for the fixture's missing TLS files.
+          # Only integrity failures should fail this observability smoke test.
+          if [ "$status" -eq 3 ]; then
+            echo "EvidenceTool returned an integrity violation." >&2
+            exit 3
+          fi
+          if [ "$status" -ne 0 ] && [ "$status" -ne 1 ] && [ "$status" -ne 2 ]; then
+            echo "Unexpected EvidenceTool exit code: $status" >&2
+            exit "$status"
+          fi
+
+      - name: Query Jaeger API to Verify Ingestion and Indexing
+        run: |
+          sleep 2
+          curl -s "http://localhost:16686/api/traces?service=evidencetool" | python -c "
+          import sys, json
+          data = json.load(sys.stdin)
+          traces = data.get('data', [])
+          assert len(traces) > 0, 'No traces found in Jaeger!'
+          spans = traces[0]['spans']
+          span_names = [s['operationName'] for s in spans]
+          print('Found spans in real Jaeger:', span_names)
+          assert 'evidencetool.diagnosis' in span_names
+          assert 'evidencetool.decision' in span_names
+          root_span = next(s for s in spans if s['operationName'] == 'evidencetool.diagnosis')
+          print('Root traceID in Jaeger:', root_span['traceID'])
+          assert root_span['traceID'] == '4bf92f3577b34da6a3ce929d0e0e4736'
+          print('Real Jaeger E2E Acceptance verified successfully!')
+          "
+

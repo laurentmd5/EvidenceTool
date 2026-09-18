@@ -38,6 +38,8 @@ RUN echo "server {\n\
     }\n\
 }" > /etc/nginx/sites-available/default
 
+RUN printf 'EvidenceTool E2E health\n' > /var/www/html/index.html
+
 # Systemd requires this to run in docker
 VOLUME [ "/sys/fs/cgroup" ]
 

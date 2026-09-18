@@ -32,14 +32,29 @@ def validate_decision_integrity(  # noqa: C901
     state: OperationalState | None = None
 ) -> IntegrityResult:
     violations = []
+    evidence_ids = [item.id for item in evidence]
+    from collections import Counter
+    id_counts = Counter(evidence_ids)
+    duplicate_ids = sorted(eid for eid, count in id_counts.items() if count > 1)
+    if duplicate_ids:
+        violations.append(f"Evidence contains duplicate IDs: {', '.join(duplicate_ids)}.")
+
+    unknown_blocking_ids = sorted(set(decision.blocking_evidence) - set(evidence_ids))
+    if unknown_blocking_ids:
+        violations.append(
+            f"Decision blocking_evidence references missing evidence: {', '.join(unknown_blocking_ids)}."
+        )
 
     # 1. Recommendation must not influence Decision. (This is structurally enforced
     #    because Recommendation is produced *after* Decision, but we note it).
 
     # 2. BLOCK invariants
     if decision.status == DecisionStatus.BLOCK:
-        if not decision.blocking_evidence and not (policy.allow or policy.blocked_by):
-            violations.append("Decision is BLOCK but blocking_evidence is empty (required for legacy policies).")
+        if not decision.blocking_evidence:
+            if policy.allow or policy.blocked_by:
+                violations.append("Decision is BLOCK but blocking_evidence is empty (required for situational policies).")
+            else:
+                violations.append("Decision is BLOCK but blocking_evidence is empty (required for legacy policies).")
 
     # 3. HUMAN_REVIEW invariants
     if decision.status == DecisionStatus.HUMAN_REVIEW:
@@ -71,8 +86,13 @@ def validate_decision_integrity(  # noqa: C901
                 if blocked:
                     violations.append("Decision is ALLOW but an identified situation is explicitly blocked by policy.")
 
-                if state.ambiguous:
-                    violations.append("Decision is ALLOW but the operational state is AMBIGUOUS.")
+                # Local ambiguity invariant: ALLOW cannot be granted if an allowed situation is ambiguous
+                for allow_id in policy.allow:
+                    eval_sit = next((e for e in state.evaluations if e.situation.id == allow_id), None)
+                    if eval_sit and eval_sit.is_ambiguous:
+                        violations.append(f"Decision is ALLOW but allowed situation '{allow_id}' is AMBIGUOUS.")
+                    elif not eval_sit and state.ambiguous:
+                        violations.append("Decision is ALLOW but the operational state is AMBIGUOUS.")
 
         # V0.2 Legacy Invariants
         else:

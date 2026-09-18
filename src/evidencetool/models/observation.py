@@ -13,10 +13,30 @@ traced back to the concrete check that produced it.
 
 from __future__ import annotations
 
+import re
 import typing
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
+
+_SENSITIVE_KEY_PATTERN = re.compile(r"(?i)(password|passwd|secret|token|api[_-]?key|authorization|cookie)")
+_SENSITIVE_VALUE_PATTERN = re.compile(
+    r"(?i)(password|passwd|secret|token|api[_-]?key|authorization|cookie)(\s*[:=]\s*)([^\s,;]+)"
+)
+
+
+def _redact(value: Any, key: str | None = None) -> Any:
+    if key and _SENSITIVE_KEY_PATTERN.search(key):
+        return "[REDACTED]"
+    if isinstance(value, dict):
+        return {str(item_key): _redact(item_value, str(item_key)) for item_key, item_value in value.items()}
+    if isinstance(value, list):
+        return [_redact(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_redact(item) for item in value)
+    if isinstance(value, str):
+        return _SENSITIVE_VALUE_PATTERN.sub(r"\1\2[REDACTED]", value)
+    return value
 
 
 @dataclass(frozen=True)
@@ -33,6 +53,10 @@ class Observation:
         default_factory=lambda: datetime.now(timezone.utc)
     )  # when EvidenceTool actually ran the collector
     host: str | None = None  # the target host the observation was collected from (None = local)
+    execution_scope: str | None = None
+    target: str | None = None
+    capability: str | None = None
+    transport_status: str | None = None
 
     def age_seconds(self, now: datetime | None = None) -> float:
         """Age of the observation relative to `now` (defaults to current time)."""
@@ -45,10 +69,14 @@ class Observation:
             "source": self.source,
             "category": self.category,
             "collector": self.collector,
-            "method": self.method,
-            "value": self.value,
-            "message": self.message,
+            "method": _redact(self.method),
+            "value": _redact(self.value),
+            "message": _redact(self.message),
             "observed_at": self.observed_at.isoformat(),
             "collected_at": self.collected_at.isoformat(),
             "host": self.host,
+            "execution_scope": self.execution_scope,
+            "target": self.target,
+            "capability": self.capability,
+            "transport_status": self.transport_status,
         }

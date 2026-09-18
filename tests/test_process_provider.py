@@ -8,6 +8,11 @@ from unittest.mock import Mock
 
 import pytest
 
+from evidencetool.decision.correlation import correlate_state
+from evidencetool.decision.engine import decide
+from evidencetool.diagnostic.loader import load_catalog
+from evidencetool.evidence.evaluator import evaluate_observation
+from evidencetool.policy.loader import load_policy
 from evidencetool.providers.base import ProviderContext
 from evidencetool.providers.process import ProcessProvider
 from evidencetool.providers.registry import get_provider
@@ -28,9 +33,11 @@ def test_process_running_pgrep_success(monkeypatch):
     p = ProcessProvider()
 
     def mock_run_command(args, **kwargs):
-        if "pgrep" in args:
-            return Mock(ran=True, returncode=0, stdout="1234\n5678", stderr="")
-        if "ps" in args:
+        if "ps" in args and "pid,state,comm" in args:
+            return Mock(ran=True, returncode=0, stdout="PID STATE COMM\n1234 S nginx\n5678 S nginx", stderr="")
+        if "ps" in args and "%cpu" in "".join(args):
+            return Mock(ran=True, returncode=0, stdout="%CPU %MEM RSS\n 1.2  0.5 12000", stderr="")
+        if "ps" in args and "state,comm" in args:
             return Mock(ran=True, returncode=0, stdout="S nginx\nS nginx", stderr="")
         return Mock(ran=False, returncode=1, stdout="", stderr="")
 
@@ -39,18 +46,20 @@ def test_process_running_pgrep_success(monkeypatch):
     obs = p.collect(ProviderContext({"process": "nginx"}))
     obs_map = {o.id: o for o in obs}
 
+    assert obs_map["process.exists"].value["status"] == "PASS"
     assert obs_map["process.running"].value["status"] == "PASS"
-    assert obs_map["process.running"].value["pids"] == ["1234", "5678"]
+    assert obs_map["process.exists"].value["pids"] == ["1234", "5678"]
     assert obs_map["process.zombie"].value["status"] == "PASS"
+    assert obs_map["process.state"].value["status"] == "PASS"
 
 
 def test_process_not_running(monkeypatch):
     p = ProcessProvider()
 
     def mock_run_command(args, **kwargs):
-        if "pgrep" in args:
-            return Mock(ran=True, returncode=1, stdout="", stderr="")
-        if "ps" in args:
+        if "ps" in args and "pid,state,comm" in args:
+            return Mock(ran=True, returncode=0, stdout="PID STATE COMM\n1 S init\n2 S bash", stderr="")
+        if "ps" in args and "state,comm" in args:
             return Mock(ran=True, returncode=0, stdout="S init\nS bash", stderr="")
         return Mock(ran=False, returncode=1, stdout="", stderr="")
 
@@ -59,17 +68,27 @@ def test_process_not_running(monkeypatch):
     obs = p.collect(ProviderContext({"process": "my_daemon"}))
     obs_map = {o.id: o for o in obs}
 
+    assert obs_map["process.exists"].value["status"] == "FAIL"
     assert obs_map["process.running"].value["status"] == "FAIL"
+
+    state = correlate_state(
+        [evaluate_observation(observation) for observation in obs],
+        load_catalog("catalogs/process.yaml"),
+    )
+    decision = decide(state, load_policy("policies/process.yaml"))
+
+    assert decision.status.value == "ALLOW"
+    assert "PROCESS_NOT_FOUND" in decision.reason
 
 
 def test_process_zombie_detected(monkeypatch):
     p = ProcessProvider()
 
     def mock_run_command(args, **kwargs):
-        if "pgrep" in args:
-            return Mock(ran=True, returncode=0, stdout="9999", stderr="")
-        if "ps" in args:
-            return Mock(ran=True, returncode=0, stdout="Z+ worker_process\nS master", stderr="")
+        if "ps" in args and "pid,state,comm" in args:
+            return Mock(ran=True, returncode=0, stdout="PID STATE COMM\n9999 Z worker_process", stderr="")
+        if "ps" in args and "state,comm" in args:
+            return Mock(ran=True, returncode=0, stdout="Z worker_process\nS master", stderr="")
         return Mock(ran=False, returncode=1, stdout="", stderr="")
 
     monkeypatch.setattr("evidencetool.providers.process.run_command", mock_run_command)

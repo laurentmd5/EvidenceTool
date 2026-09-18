@@ -34,7 +34,11 @@
               "message": { "type": "string" },
               "observed_at": { "type": "string", "format": "date-time" },
               "collected_at": { "type": "string", "format": "date-time" },
-              "host": { "type": ["string", "null"] }
+              "host": { "type": ["string", "null"] },
+              "execution_scope": { "type": ["string", "null"] },
+              "target": { "type": ["string", "null"] },
+              "capability": { "type": ["string", "null"] },
+              "transport_status": { "type": ["string", "null"] }
             }
           },
           "is_stale": { "type": "boolean" }
@@ -67,6 +71,35 @@
       "properties": {
         "action": { "type": "string" }
       }
+    },
+    "authority": {
+      "type": "object",
+      "required": ["caller_id", "caller_type"],
+      "properties": {
+        "caller_id": { "type": "string" },
+        "caller_type": { "type": "string" },
+        "session_id": { "type": ["string", "null"] },
+        "policy_fingerprint": { "type": ["string", "null"] },
+        "probes_budget": { "type": ["integer", "null"] },
+        "probes_consumed": { "type": "integer" },
+        "probes_remaining": { "type": ["integer", "null"] }
+      }
+    },
+    "causality": {
+      "type": "object",
+      "required": ["status", "causal_chain", "propagated_symptoms", "precluded_hypotheses", "confidence"],
+      "properties": {
+        "status": { "enum": ["ROOT_CAUSE_IDENTIFIED", "ROOT_CAUSE_CONSTRAINED", "ROOT_CAUSE_UNKNOWN"] },
+        "primary_root_cause": { "type": ["string", "null"] },
+        "causal_chain": { "type": "array", "items": { "type": "string" } },
+        "propagated_symptoms": { "type": "array", "items": { "type": "string" } },
+        "precluded_hypotheses": { "type": "array", "items": { "type": "string" } },
+        "candidate_causes": { "type": "array", "items": { "type": "string" } },
+        "confidence": { "type": "string" }
+      }
+    },
+    "trace_id": {
+      "type": ["string", "null"]
     }
   }
 }

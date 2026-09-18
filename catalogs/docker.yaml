@@ -4,6 +4,7 @@ situations:
     signature:
       container.exists: PASS
       container.running: PASS
+      container.restarting: PASS
       container.health: PASS
       container.exit_code: PASS
 
@@ -22,6 +23,7 @@ situations:
     description: "Container is running but its health check failed"
     signature:
       container.running: PASS
+      container.restarting: PASS
       container.health: FAIL
 
   CONTAINER_NOT_FOUND:

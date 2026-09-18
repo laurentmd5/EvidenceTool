@@ -1,0 +1,18 @@
+# EvidenceTool — Pinned Production & Test Dependencies Lockfile
+# Generated for reproducible Open Source builds and SCA auditing
+pyyaml==6.0.2
+click==8.3.3
+pytest==9.0.3
+cryptography==50.0.0
+jsonschema==4.23.0
+ruff==0.8.2
+mypy==1.14.0
+types-PyYAML==6.0.12.20241230
+bandit==1.8.0
+pytest-cov==6.0.0
+# OpenTelemetry Mode B Outbound Tracing (optional extra locked for reproducible builds)
+opentelemetry-api==1.29.0
+opentelemetry-sdk==1.29.0
+opentelemetry-exporter-otlp-proto-http==1.29.0
+opentelemetry-proto==1.29.0
+protobuf==5.29.3

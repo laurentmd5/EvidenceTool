@@ -20,11 +20,21 @@ _STATUS_SYMBOL = {
 
 
 def to_contract_dict(result: DiagnosisResult) -> dict[str, typing.Any]:
-    return {
-        "incident": {
+    from evidencetool.models.incident import OperationalIncident
+
+    if isinstance(result.incident, OperationalIncident):
+        incident_dict = {
+            "id": result.incident.incident_id,
+            "type": f"{result.incident.target}_operational_incident",
+        }
+    else:
+        incident_dict = {
             "id": result.incident.id,
             "type": result.incident.type,
-        },
+        }
+
+    res: dict[str, typing.Any] = {
+        "incident": incident_dict,
         "evidence": [e.to_dict() for e in result.evidence],
         "policy": {
             "action": result.policy.action,
@@ -35,6 +45,21 @@ def to_contract_dict(result: DiagnosisResult) -> dict[str, typing.Any]:
             "action": result.recommendation,
         },
     }
+    if result.causality is not None:
+        res["causality"] = result.causality.to_dict()
+    if result.authority is not None:
+        res["authority"] = {
+            "caller_id": result.authority.caller_id,
+            "caller_type": result.authority.caller_type,
+            "session_id": result.authority.session_id,
+            "policy_fingerprint": result.authority.policy_fingerprint,
+            "probes_budget": result.authority.probes_budget,
+            "probes_consumed": result.authority.probes_consumed,
+            "probes_remaining": result.authority.probes_remaining,
+        }
+    if result.trace is not None:
+        res["trace_id"] = result.trace.trace_id
+    return res
 
 
 def to_json(result: DiagnosisResult) -> str:
@@ -62,5 +87,9 @@ def to_text(result: DiagnosisResult) -> str:
 
     lines.append("")
     lines.append(f"Recommendation:\n{result.recommendation}")
+
+    if result.trace is not None:
+        lines.append("")
+        lines.append(f"Trace ID:\n{result.trace.trace_id}")
 
     return "\n".join(lines)

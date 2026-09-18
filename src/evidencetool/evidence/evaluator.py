@@ -34,15 +34,21 @@ def evaluate_observation(
     except (ValueError, TypeError):
         status = EvidenceStatus.UNKNOWN
 
+    age = observation.age_seconds()
     is_stale = False
-    if max_age is not None and observation.age_seconds() > max_age:
+
+    # Clock skew / future timestamp protection (SEC-06)
+    if age < -5.0:
+        status = EvidenceStatus.UNKNOWN
+        is_stale = True
+        message = f"{observation.message} (invalid timestamp: future date detected)"
+    elif max_age is not None and age >= max_age:
         is_stale = True
         if status != EvidenceStatus.UNKNOWN:
             status = EvidenceStatus.UNKNOWN
-
-    message = observation.message
-    if is_stale:
-        message = f"{message} (stale: observed {observation.age_seconds():.0f}s ago, max_age={max_age}s)"
+        message = f"{observation.message} (stale: observed {age:.0f}s ago, max_age={max_age}s)"
+    else:
+        message = observation.message
 
     return Evidence(
         observation=observation,

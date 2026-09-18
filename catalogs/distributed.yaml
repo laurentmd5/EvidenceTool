@@ -1,0 +1,53 @@
+situations:
+  DISTRIBUTED_HEALTHY:
+    description: "Application, database, cache, and upstream network dependencies are all operational"
+    signature:
+      dependency.http_status: PASS
+      postgres.reachable: PASS
+      redis.reachable: PASS
+      network.port_reachable: PASS
+
+  DATABASE_CONNECTIVITY_FAILURE:
+    description: "Application is failing with HTTP 500 due to database TCP/5432 connectivity outage while cache and general network are healthy"
+    signature:
+      dependency.http_status: FAIL
+      postgres.reachable: FAIL
+      network.port_reachable: FAIL
+      redis.ping: PASS
+
+  DATABASE_POOL_EXHAUSTION_CASCADE:
+    description: "Application SLA is degraded and failing due to database connection pool exhaustion while database port is reachable"
+    signature:
+      dependency.sla_budget: FAIL
+      postgres.reachable: PASS
+      postgres.pool_exhaustion: FAIL
+      redis.ping: PASS
+
+  CACHE_FAILURE_DATABASE_OVERLOAD:
+    description: "Redis cache memory saturation (OOM) or outage is causing query cascade and database latency spike"
+    signature:
+      redis.memory_pressure: FAIL
+      postgres.reachable: PASS
+      postgres.latency_ms: FAIL
+
+  UPSTREAM_MICROSERVICE_OUTAGE:
+    description: "Application is reporting 5xx or circuit breaking due to external upstream dependency outage while local database and cache are healthy"
+    signature:
+      dependency.http_status: FAIL
+      dependency.circuit_breaker: FAIL
+      postgres.reachable: PASS
+      redis.ping: PASS
+
+  DISTRIBUTED_SPLIT_BRAIN_OR_READ_ONLY:
+    description: "Database node is in read-only / standby recovery mode when primary was expected, causing application write failures"
+    signature:
+      postgres.reachable: PASS
+      postgres.is_in_recovery: FAIL
+      redis.ping: PASS
+
+  TOTAL_NETWORK_PARTITION:
+    description: "Underlying network routing, DNS, or host connectivity failure causing total partition of distributed services"
+    signature:
+      network.port_reachable: FAIL
+      postgres.reachable: FAIL
+      redis.reachable: FAIL

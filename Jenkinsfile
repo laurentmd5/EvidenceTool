@@ -11,7 +11,7 @@ pipeline {
     agent any
  
     options {
-        timeout(time: 15, unit: 'MINUTES')
+        timeout(time: 45, unit: 'MINUTES')
         disableConcurrentBuilds()
     }
  
@@ -102,6 +102,28 @@ pipeline {
                         '''
                     }
                 }
+
+                stage('JSON Contract Schema Validation') {
+                    steps {
+                        sh '''
+                            . /tmp/venv/bin/activate
+                            python -c "
+                            import jsonschema, json
+                            schema = json.load(open('schemas/diagnosis-result.schema.json'))
+                            jsonschema.Draft7Validator.check_schema(schema)
+                            print('Draft-07 schema definition is valid!')
+                            "
+                            python -c "
+                            import subprocess, json, jsonschema
+                            schema = json.load(open('schemas/diagnosis-result.schema.json'))
+                            res = subprocess.run(['evidencetool', 'diagnose', 'network', '--output', 'json'], capture_output=True, text=True)
+                            data = json.loads(res.stdout)
+                            jsonschema.validate(instance=data, schema=schema)
+                            print('Live CLI JSON output strictly complies with schema contract!')
+                            "
+                        '''
+                    }
+                }
             }
         }
 
@@ -116,6 +138,20 @@ pipeline {
             // Runs on the host Docker daemon to test real Docker container lifecycle & diagnostics
             steps {
                 sh 'bash tests/e2e/run_docker_e2e.sh'
+            }
+        }
+
+        stage('E2E Data and Dependency Providers') {
+            // Requires Docker on the Jenkins node. The script owns all test containers and cleanup.
+            steps {
+                sh 'bash tests/e2e/run_data_e2e.sh'
+            }
+        }
+
+        stage('E2E Kubernetes Providers (Minikube)') {
+            // Requires minikube, kubectl and Docker on the Jenkins node.
+            steps {
+                sh 'bash tests/e2e/run_k8s_e2e.sh'
             }
         }
     }

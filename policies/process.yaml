@@ -1,0 +1,34 @@
+version: "1.0"
+action: restart_process
+risk: MEDIUM
+schema: "v2"
+
+allow:
+  - PROCESS_IO_WAIT
+  - PROCESS_CRASHED
+  - PROCESS_NOT_FOUND
+  - PROCESS_ZOMBIE
+  - PROCESS_CPU_SATURATION
+  - PROCESS_MEMORY_PRESSURE
+  - PROCESS_FD_EXHAUSTION
+
+blocked_by:
+  - PROCESS_HEALTHY
+
+required_evidence:
+  - id: process.exists
+    on_unknown: BLOCK
+  - id: process.running
+    on_unknown: BLOCK
+  - id: process.state
+    on_unknown: IGNORE
+  - id: process.zombie
+    on_unknown: IGNORE
+  - id: process.cpu_usage
+    on_unknown: IGNORE
+  - id: process.memory_usage
+    on_unknown: IGNORE
+  - id: process.open_files
+    on_unknown: IGNORE
+
+human_approval: false

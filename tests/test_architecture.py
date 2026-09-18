@@ -1,7 +1,9 @@
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
+from evidencetool.capability.models import CapabilitySet, ExecutionContext
 from evidencetool.diagnose import diagnose
 from evidencetool.models.decision import DecisionStatus
 from evidencetool.models.observation import Observation
@@ -87,6 +89,42 @@ def test_C1_unknown_provider(base_policy):
     assert "No provider registered for namespace: 'unknown'" in obs.message
 
 
+def test_provider_allowlist_denies_before_collect(base_policy):
+    policy = Policy(
+        version="1",
+        action="dummy_action",
+        risk=RiskLevel.LOW,
+        required_evidence=[EvidenceRequirement(id="dummy.is_ok", on_unknown=OnUnknown.BLOCK)],
+    )
+    result = diagnose(
+        "dummy_target",
+        policy,
+        {},
+        execution=ExecutionContext(capabilities=CapabilitySet(allowed_providers=frozenset({"nginx"}))),
+    )
+    assert result.metrics.success is False
+    assert result.evidence[0].observation.value["capability_denied"] is True
+
+
+def test_untrusted_provider_denied_when_trust_is_required(base_policy):
+    policy = Policy(
+        version="1",
+        action="dummy_action",
+        risk=RiskLevel.LOW,
+        required_evidence=[EvidenceRequirement(id="dummy.is_ok", on_unknown=OnUnknown.BLOCK)],
+    )
+    result = diagnose(
+        "dummy_target",
+        policy,
+        {},
+        execution=ExecutionContext(
+            capabilities=CapabilitySet(require_trusted_providers=True)
+        ),
+    )
+    assert result.metrics.success is False
+    assert result.evidence[0].observation.value["capability_denied"] is True
+
+
 # --- TEST C2: Evidence Unknown ---
 
 @provider("failing_dummy")
@@ -152,11 +190,12 @@ def test_D_missing_provider_context():
     assert "Missing required context variable: service" in obs.message
 
 
-# --- TEST E: True Dynamic File Discovery ---
+# --- TEST E: Static Builtin Provider Safety (Zero Auto-Discovery) ---
 
-def test_E_dynamic_file_discovery():
+def test_E_static_provider_registration_ignores_unapproved_files():
     """
-    Proves that merely dropping a file in the providers directory makes it available.
+    SEC-02: Merely dropping an unapproved file in providers/ does NOT execute or register it.
+    Only explicit static built-ins and SHA-256 approved plugins are loaded.
     """
     import importlib
     from pathlib import Path
@@ -178,19 +217,17 @@ class DummyDynamicProvider(Provider):
 """
     try:
         dummy_file.write_text(code)
-
-        # Invalidate import caches to ensure pkgutil sees the new file
         importlib.invalidate_caches()
 
         load_all_providers()
 
-        provider_instance = get_provider("dummy_dynamic")
-        assert provider_instance.__class__.__name__ == "DummyDynamicProvider"
+        # Unapproved filesystem module is not registered
+        with pytest.raises(ValueError, match="No provider registered for namespace: 'dummy_dynamic'"):
+            get_provider("dummy_dynamic")
     finally:
         if dummy_file.exists():
             dummy_file.unlink()
 
-        # Clean up the .pyc file/pycache if it exists
         pycache = provider_dir / "__pycache__"
         if pycache.exists():
             for pyc in pycache.glob("dummy_dynamic.*.pyc"):
@@ -207,52 +244,23 @@ def test_F_provider_namespace_collision():
         register_provider("dummy", DummyProvider)
 
 
-# --- TEST G: Provider Import Failure ---
+# --- TEST G: Approved Plugin Verification & Safe Error Handling ---
 
-def test_G_provider_import_failure():
+def test_G_approved_plugin_loading_and_tamper_detection(tmp_path: Path):
     """
-    Proves that a broken provider module logs an error and records a ProviderLoadError,
-    but does not crash the registry or prevent other providers from loading.
+    Proves that external plugins must be verified against their declared SHA-256 hash
+    before import and registration.
     """
-    import importlib
-    from pathlib import Path
+    from evidencetool.providers.registry import load_approved_plugins
 
-    from evidencetool.providers.registry import _FAILED_PROVIDERS, get_provider, load_all_providers
+    manifest = tmp_path / "providers.yaml"
+    manifest.write_text(
+        "plugins:\n  - namespace: broken_dynamic\n    module: does_not_exist_module\n    sha256: '" + "a" * 64 + "'\n",
+        encoding="utf-8",
+    )
 
-    provider_dir = Path(__file__).parent.parent / "src" / "evidencetool" / "providers"
-    broken_file = provider_dir / "broken_dynamic.py"
-
-    # Introduce a syntax error or import error
-    code = """
-from does_not_exist import nothing
-"""
-    try:
-        broken_file.write_text(code)
-
-        # Invalidate caches
-        importlib.invalidate_caches()
-
-        # Load providers. This should not raise an exception.
-        load_all_providers()
-
-        # The broken provider should be in _FAILED_PROVIDERS
-        assert "broken_dynamic" in _FAILED_PROVIDERS
-        error_info = _FAILED_PROVIDERS["broken_dynamic"]
-        assert error_info.namespace == "broken_dynamic"
-        assert "No module named 'does_not_exist'" in error_info.error
-
-        # Existing providers should still be accessible
-        provider_instance = get_provider("dummy")
-        assert isinstance(provider_instance, DummyProvider)
-
-    finally:
-        if broken_file.exists():
-            broken_file.unlink()
-
-        pycache = provider_dir / "__pycache__"
-        if pycache.exists():
-            for pyc in pycache.glob("broken_dynamic.*.pyc"):
-                pyc.unlink()
+    with pytest.raises(ValueError, match="has no verifiable source file"):
+        load_approved_plugins(manifest)
 
 def test_H_structural_no_decision_imports_in_providers():
     """

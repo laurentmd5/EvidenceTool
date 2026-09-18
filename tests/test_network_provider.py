@@ -6,6 +6,9 @@ from __future__ import annotations
 
 from unittest.mock import Mock
 
+import pytest
+
+from evidencetool.capability.models import CapabilityDenied, CapabilitySet, ExecutionContext, NetworkCapability
 from evidencetool.providers.base import ProviderContext
 from evidencetool.providers.network import NetworkProvider
 from evidencetool.providers.registry import get_provider
@@ -85,3 +88,34 @@ def test_network_dns_resolvable_failure(monkeypatch):
     obs_map = {o.id: o for o in obs}
 
     assert obs_map["network.dns_resolvable"].value["status"] == "FAIL"
+
+
+def test_network_capability_denies_target_without_probe(monkeypatch):
+    provider = NetworkProvider()
+    context = ProviderContext(
+        {"target_host": "10.0.0.5", "port": "6379"},
+        execution=ExecutionContext(
+            capabilities=CapabilitySet(
+                network=NetworkCapability(targets=("10.0.1.0/24",), ports=frozenset({6379}))
+            )
+        ),
+    )
+    monkeypatch.setattr("evidencetool.providers.network.socket.create_connection", pytest.fail)
+
+    observations = provider.collect(context)
+    port_observation = next(item for item in observations if item.id == "network.port_reachable")
+    assert port_observation.value["status"] == "UNKNOWN"
+    assert port_observation.value["capability_denied"] is True
+
+
+def test_network_capability_allows_private_target():
+    capability = CapabilitySet(
+        network=NetworkCapability(targets=("10.0.0.0/8",), ports=frozenset({6379}))
+    )
+    capability.require_network("tcp_connect", "10.0.0.5", 6379)
+
+
+def test_network_capability_denial_is_explicit():
+    capability = CapabilitySet(network=NetworkCapability(operations=frozenset()))
+    with pytest.raises(CapabilityDenied):
+        capability.require_network("tcp_connect", "127.0.0.1", 80)

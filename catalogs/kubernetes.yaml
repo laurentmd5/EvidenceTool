@@ -1,0 +1,39 @@
+situations:
+  K8S_POD_HEALTHY:
+    description: "Pod is Running, scheduled on a healthy Node, with all containers Ready"
+    signature:
+      k8s.pod_phase: PASS
+      k8s.containers_ready: PASS
+      k8s.pod_scheduled: PASS
+      k8s.node_ready: PASS
+
+  K8S_CRASH_LOOP_BACKOFF:
+    description: "Container is crashing repeatedly and entering CrashLoopBackOff"
+    signature:
+      k8s.container_crashloop: FAIL
+
+  K8S_OOM_KILLED:
+    description: "Container was killed due to memory limit exhaustion (OOMKilled / Exit Code 137)"
+    signature:
+      k8s.container_oom_killed: FAIL
+
+  K8S_IMAGE_PULL_FAILURE:
+    description: "Container cannot pull image from registry (ImagePullBackOff / ErrImagePull)"
+    signature:
+      k8s.image_pull_status: FAIL
+
+  K8S_CONFIG_OR_SECRET_MISSING:
+    description: "Container creation failed due to missing ConfigMap, Secret, or environment variable"
+    signature:
+      k8s.config_secret_status: FAIL
+
+  K8S_INSUFFICIENT_CLUSTER_RESOURCES:
+    description: "Pod is stuck in Pending state because no cluster Node satisfies CPU/RAM requests"
+    signature:
+      k8s.pod_scheduled: FAIL
+
+  K8S_NODE_NOT_READY_OR_PRESSURE:
+    description: "Assigned cluster Node is in NotReady state or experiencing Memory/Disk pressure"
+    signature:
+      k8s.pod_scheduled: PASS
+      k8s.node_ready: FAIL

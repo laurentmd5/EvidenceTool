@@ -125,7 +125,7 @@ class TLSProvider:
         )
 
     def _key_matches_certificate(self, certificate_path: str, private_key_path: str, host: str | None) -> Observation:
-        method = "openssl x509/rsa -modulus"
+        method = "openssl x509/pkey -pubout"
 
         if not file_exists(certificate_path, host=host) or not file_exists(private_key_path, host=host):
             return Observation(
@@ -140,27 +140,31 @@ class TLSProvider:
                 host=host,
             )
 
-        cert_result = run_command(["openssl", "x509", "-noout", "-modulus", "-in", certificate_path], host=host)
-        key_result = run_command(["openssl", "rsa", "-noout", "-modulus", "-in", private_key_path], host=host)
+        cert_result = run_command(
+            ["openssl", "x509", "-pubkey", "-noout", "-in", certificate_path], host=host
+        )
+        key_result = run_command(
+            ["openssl", "pkey", "-pubout", "-in", private_key_path], host=host
+        )
 
         if not cert_result.ran or not key_result.ran:
             error_msg = cert_result.error if not cert_result.ran else key_result.error
-            status, message = "UNKNOWN", f"Could not run openssl to extract moduli: {error_msg}"
+            status, message = "UNKNOWN", f"Could not run openssl to extract public keys: {error_msg}"
         elif cert_result.returncode != 0 or key_result.returncode != 0:
             parts = []
             if cert_result.returncode != 0:
                 parts.append(f"certificate: {cert_result.stderr}")
             if key_result.returncode != 0:
                 parts.append(f"private key: {key_result.stderr}")
-            status, message = "UNKNOWN", f"Failed to extract modulus — {'; '.join(parts)}"
+            status, message = "UNKNOWN", f"Failed to extract public key — {'; '.join(parts)}"
         else:
-            cert_modulus = cert_result.stdout.strip()
-            key_modulus = key_result.stdout.strip()
+            cert_public_key = cert_result.stdout.strip()
+            key_public_key = key_result.stdout.strip()
 
-            if cert_modulus == key_modulus:
-                status, message = "PASS", "Certificate and private key moduli match"
+            if cert_public_key == key_public_key:
+                status, message = "PASS", "Certificate and private key public keys match"
             else:
-                status, message = "FAIL", "Certificate and private key mismatch: moduli are different"
+                status, message = "FAIL", "Certificate and private key mismatch: public keys are different"
 
         return Observation(
             id="tls.key_matches_certificate",

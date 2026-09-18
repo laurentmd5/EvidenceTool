@@ -1,7 +1,7 @@
 # EvidenceTool — PRODUCT_CONTRACT.md
 
-**Version:** 3.0 (V0.3 Situational Contract)
-**Status:** Locked and frozen for V0.3 release
+**Version:** 10.2 (V1.0.2 Deterministic Causal Operational Reasoning Engine & Incident Model)
+**Status:** Active specification for V1.0.2 Deterministic Causal Operational Reasoning Engine, Incident Model & Local Uncertainty Governance
 **Scope:** This document defines the minimal functional and architectural contract that the EvidenceTool codebase must respect.
 
 ---
@@ -15,6 +15,23 @@ EvidenceTool separates **observation**, **recommendation**, **authorization**, a
 ---
 
 ## 1. Scope V0.2 & V0.3
+
+### 1.1 Execution capability boundary
+
+Execution capabilities are separate from diagnostic policy. The capability boundary determines whether a caller may
+collect a given observation; the diagnostic policy determines how collected evidence affects an operational decision.
+The network provider is not globally restricted from private or loopback targets. A caller may authorize those
+targets explicitly through an execution capability policy, including operation, target, port, probe-count and
+timeout limits. Capability denial is a security/integrity failure, not an ordinary network result.
+
+Provider discovery and provider trust are separate. Built-in providers are identified as `builtin`; dynamically
+discovered providers are `experimental` until explicitly approved. Automated execution may require trusted providers
+through its capability policy. The diagnostic decision remains independent from both capability authorization and
+provider trust.
+
+External providers may be activated through a manifest containing their namespace, import module and SHA-256 source
+hash. The hash is verified before import. Legacy dynamic discovery remains available for local extension workflows;
+automated callers must use explicit approval and may require trusted providers.
 
 **Definition:**
 
@@ -80,10 +97,13 @@ Every observation produced by a provider must conform to this structure:
 
 ### 2.1 Freshness
 
-Freshness is derived from `observed_at` relative to evaluation time, using a default threshold:
+Freshness is derived from `observed_at` relative to evaluation time when a policy sets `max_age` for an evidence item:
 
-- `FRESH`: observed less than **60 seconds** before evaluation.
-- `STALE`: observed 60 seconds or more before evaluation.
+- `FRESH`: observed less than the configured `max_age` before evaluation.
+- `STALE`: observed `max_age` seconds or more before evaluation.
+
+If `max_age` is omitted, no freshness constraint is applied. Integrations that require a 60-second freshness
+window must declare `max_age: 60` explicitly in the policy.
 
 ---
 
@@ -293,11 +313,11 @@ EvidenceTool explicitly does **not**:
 - modify the system in any way;
 - automatically restart or remediate anything;
 - perform auto-remediation of any kind;
-- support Docker or Kubernetes (planned for V0.4 / V0.5);
+- mutate or modify Kubernetes cluster state (inspection is strictly read-only via scoped kubectl CLI);
 - use an LLM anywhere in the evidence, risk, or decision path;
 - expose a dashboard or web UI;
 - compute a single aggregate 0–100 evidence score;
-- perform probabilistic or autonomous root-cause analysis.
+- perform probabilistic, speculative, or hallucinated root-cause analysis (causal reasoning is deterministic and evidence-backed).
 
 ---
 
@@ -437,3 +457,213 @@ EvidenceTool V0.5 introduces standard operational providers for infrastructure m
 
 ### 16.2 Generic State Correlation Invariant
 The Decision Engine and State Correlation Engine remain **strictly generic and environment-agnostic**. All provider-specific knowledge lives inside discrete providers (`src/evidencetool/providers/`) and situation signature catalogs (`catalogs/*.yaml`), ensuring zero coupling between domain decision logic and OS-level collection mechanics.
+
+---
+
+## 17. Application & Data Dependencies (V0.6 Contract)
+
+### 17.1 Stateful Middleware & Upstream Dependency Providers
+EvidenceTool V0.6 extends observational boundaries to middleware and distributed dependency tiers:
+1. **PostgreSQL Provider (`postgres`)**:
+   - `postgres.reachable`: TCP socket connectivity on port 5432.
+   - `postgres.accepting_connections`: Availability probe via `pg_isready` / wire SSLRequest handshake.
+   - `postgres.pool_exhaustion`: Connection slot saturation detection (`FATAL: remaining connection slots are reserved` / `too many clients already`).
+   - `postgres.is_in_recovery`: Fact observation on standby / read-only replica status.
+   - `postgres.latency_ms`: Handshake latency measurement.
+2. **MySQL Provider (`mysql`)**:
+   - `mysql.reachable`: TCP socket connectivity on port 3306.
+   - `mysql.ping`: Initial handshake packet decoding and protocol validation.
+   - `mysql.max_connections`: Max connection limit detection (`Error 1040 (HY000): Too many connections`).
+   - `mysql.read_only`: Server `read_only` / `super_read_only` flag observation.
+   - `mysql.latency_ms`: Connect round-trip latency.
+3. **Redis Provider (`redis`)**:
+   - Native RESP wire client (zero external client dependencies).
+   - `redis.reachable`: TCP port 6379 connectivity.
+   - `redis.ping`: RESP `PING` command validation (`+PONG`).
+   - `redis.auth`: Credential validation (`NOAUTH` vs `WRONGPASS`).
+   - `redis.memory_pressure`: `INFO memory` ratio analysis (`used_memory / maxmemory`) and `OOM_MAXMEMORY` detection.
+   - `redis.role`: Node role and replication link health (`master_link_status: down`).
+   - `redis.latency_ms`: Round-trip command latency.
+4. **Dependency Provider (`dependency`)**:
+   - `dependency.http_status`: HTTP health check endpoint status (`/health`, `/healthz`).
+   - `dependency.latency_ms`: Exact round-trip response time.
+   - `dependency.sla_budget`: SLA budget validation against context expectations (`latency_ms <= sla_budget_ms`).
+   - `dependency.circuit_breaker`: Upstream throttling and circuit breaking detection (HTTP 503, 429, 504).
+
+---
+
+## 18. First-Class Causality, Provenance & Strategic Roadmap
+
+### 18.1 Definitive Product Definition
+> **EvidenceTool** is a read-only, policy-aware operational evidence engine that correlates infrastructure, application, data, and dependency signals to identify probable root causes before allowing remediation.
+
+### 18.2 First-Class Causality Model
+Every diagnosis result must expose causality and provenance as first-class citizens, distinguishing:
+1. **Root Cause Evidence (`root_cause`)**: The specific triggering evidence whose failure explains the failure signature (e.g. `postgres.pool_exhaustion`).
+2. **Supporting Evidence (`supporting_evidence`)**: Nominal underlying evidence proving that lower layers (network, processes, containers, OS) are healthy (e.g. `network.port_reachable: PASS`, `process.running: PASS`).
+3. **Decision Confidence (`confidence`)**: Formal confidence level derived from evidence coverage (`HIGH`, `MEDIUM`, `LOW`).
+
+```json
+{
+  "situation": "POSTGRES_POOL_EXHAUSTED",
+  "status": "BLOCK",
+  "confidence": "HIGH",
+  "root_cause": {
+    "evidence": ["postgres.pool_exhaustion"]
+  },
+  "supporting_evidence": [
+    "postgres.reachable",
+    "postgres.accepting_connections",
+    "postgres.latency_ms",
+    "network.port_reachable",
+    "process.running"
+  ]
+}
+```
+
+### 18.3 Strategic Evolution Trajectory
+- **V0.3**: Single-domain infrastructure diagnosis (Nginx / TLS / Systemd).
+- **V0.5**: Multi-domain infrastructure evidence (OS, Process, Filesystem, Network, Docker).
+- **V0.6**: Dependency-aware diagnosis (PostgreSQL, MySQL, Redis, Upstream APIs, SLA budgets).
+- **V0.7**: Kubernetes diagnostic domain (Mode A kubectl CLI with namespace confinement).
+- **V0.8**: Distributed diagnosis & cross-domain multi-signal correlation.
+- **V0.9**: AI-Agent safety gateway, authority model & caller identity.
+- **V1.0**: Deterministic causal operational reasoning engine & unified OperationalIncident model.
+- **V1.0.1**: Enterprise security hardening (strict TLS, static provider registry, probe budget isolation).
+- **V1.0.2**: Decision correctness & network robustness (per-situation local uncertainty, bounded parsers, V2 fallbacks).
+
+---
+
+## 19. Kubernetes Diagnostic Domain (V0.7+ Contract)
+
+### 19.1 Execution Scoping (Mode A `kubectl` CLI)
+1. **CLI-Based Subprocess Execution**: Construction of strict argument lists (`kubectl get ... -o json`) executed via `run_command` without a shell.
+2. **Zero Mutation Guarantee**: Read-only operations (`get`, `describe`, `cluster-info`). Zero mutation commands (`apply`, `delete`, `scale`, `exec`, `cordon`, `drain`).
+3. **Confinement by Namespace (`KubernetesCapability`)**: Strict namespace access whitelist (`allowed_namespaces`) with automated security denial on system namespaces (`kube-system`, `kube-public`, `kube-node-lease`).
+4. **Transport Failure Distinction (`DES-03`)**: Transport or authentication errors (such as `403 Forbidden`, unreachable API server, or connection timeouts) degrade gracefully to `UNKNOWN` with `transport_status='failed'`, reserving `FAIL` strictly for verified pod, container, or node defects. Absence of evidence is never treated as evidence of failure.
+
+---
+
+## 20. Distributed Diagnosis & Cross-Domain Correlation (V0.8 Contract)
+
+### 20.1 Cross-Domain Multi-Signal Invariant
+In distributed architectures, single-layer observations cannot distinguish symptoms from root causes. The correlation engine evaluates composite multi-signal signatures across application, data, cache, and transport layers simultaneously:
+- **`DATABASE_CONNECTIVITY_FAILURE`**: Application 500 + PostgreSQL unreachable + TCP/5432 connection failure + Redis ping PASS (rules out global network partition).
+- **`DATABASE_POOL_EXHAUSTION_CASCADE`**: Application latency spike + Database reachable + Pool exhausted (`Too many clients`).
+- **`CACHE_FAILURE_DATABASE_OVERLOAD`**: Redis memory saturation (OOM) + Database query latency spike.
+- **`UPSTREAM_MICROSERVICE_OUTAGE`**: Application 503 / circuit breaker triggered + Local database PASS + Cache PASS.
+- **`TOTAL_NETWORK_PARTITION`**: Multi-port simultaneous unreachable states across all remote endpoints.
+
+---
+
+## 21. AI-Agent Safety Gateway & Authority Model (V0.9 Contract)
+
+### 21.1 The 4-Tier Architectural Separation
+EvidenceTool establishes four strictly decoupled layers for operational reasoning:
+1. **Observation (Facts)**: Pure, read-only system observations collected with zero side-effects.
+2. **Situation (Semantics)**: Multi-signal state correlation evaluating composite signatures against formal catalogs.
+3. **Governance (Action Policy)**: Invariant safety rules determining if a remediation action is allowed (`BLOCK > HUMAN_REVIEW > ALLOW`).
+4. **Authority (Capability Boundary)**: Zero-trust execution envelope restricting the caller's allowed targets, ports, namespaces, and probe budgets.
+
+### 21.2 Probe Budget Quota Invariant
+Automated and AI-agent callers operate under strict resource and probe limits:
+- Exceeding `max_probes` terminates execution immediately with `CapabilityDenied`.
+- Denials are recorded in `AuthorityMetadata` and evaluated fail-closed as `BLOCK`.
+
+### 21.3 Capability Anti-Tampering
+Capability policies can be pinned to a cryptographic SHA-256 digest. Any modification of the policy content by an untrusted or prompt-injected caller is immediately rejected prior to execution.
+
+---
+
+## 22. Deterministic Causal Operational Reasoning & Incident Model (V1.0 Contract)
+
+### 22.1 The 5 Causal Invariants
+1. **Symptoms are Never Root Causes**: Surface effects (`HTTP 504`, `TCP timeout`, `High Latency`) cannot be designated as primary root causes.
+2. **Healthy Dependencies Preclude Hypotheses**: Verified healthy signals explicitly refute competing outage hypotheses (`PRECLUDED_HYPOTHESES`).
+3. **Directly Observed Failures Take Precedence**: Direct component failures (`redis.memory_pressure: FAIL`, `postgres.pool_exhaustion: FAIL`, `k8s.container_oom_killed: FAIL`) supersede indirect latency degradation.
+4. **Declarative Causal Catalogs**: All valid causal propagation paths must be declared in YAML catalogs (`causality/*.yaml`); the engine never invents causal relations dynamically.
+5. **Tri-State Deterministic Outcome (Fail-Closed)**:
+   - `ROOT_CAUSE_IDENTIFIED`: Sufficient evidence + valid causal chain + zero contradictions.
+   - `ROOT_CAUSE_CONSTRAINED`: Multiple candidate causes compatible with observations without sufficient evidence to disambiguate.
+   - `ROOT_CAUSE_UNKNOWN`: Incomplete observations $\to$ **Fail-closed (`HUMAN_REVIEW` / `BLOCK`), zero guessing**.
+
+### 22.2 Unified Operational Incident Model
+Operational reasoning culminates in a typed `OperationalIncident` uniting:
+- `incident_id`: Globally unique incident identifier.
+- `observations`: Verified raw facts collected across all domains.
+- `situations`: Formally matched signatures.
+- `causality`: Primary root cause, causal propagation chain, surface symptoms, and precluded hypotheses.
+- `decision`: Governance policy verdict (`BLOCK > HUMAN_REVIEW > ALLOW`).
+- `authority`: Caller identity, quotas, and capability session tracing.
+
+---
+
+## 23. Decision Correctness & Local Uncertainty Model (V1.0.2 Contract)
+
+### 23.1 Local Uncertainty Invariant
+Uncertainty must be local to the hypothesis it affects:
+- In `V2_SITUATIONAL` policies, ambiguity is tracked per-situation (`SituationEvaluation`).
+- An unresolved or `UNKNOWN` observation in an unrelated domain (e.g. `redis.reachable: UNKNOWN`) does not contaminate or block a clean, verified decision in the target domain (e.g. `restart_nginx` with `NGINX_SERVICE_DOWN` fully verified).
+- An allowed situation is blocked due to ambiguity if and only if *its own* signature evidence contains `UNKNOWN` values.
+
+### 23.2 Complete Fallback Invariant
+When a provider execution fails or is denied by capability policy, fallback `UNKNOWN` observations must be generated for all evidence items required by situation signatures in the active catalog, ensuring situational policies always receive explicit evidence rather than missing entries. Absence of evidence always resolves to `UNKNOWN`, never to an unverified assumption.
+
+---
+
+## 24. OpenTelemetry Mode B Outbound Tracing Contract (V1.0.3 Contract)
+
+### 24.1 Architecture & Trace Topology
+EvidenceTool produces distributed OpenTelemetry traces mapping its internal operational reasoning pipeline. Each execution generates a W3C TraceContext compliant trace consisting of hierarchical spans:
+- `evidencetool.diagnosis` (Root span): Encompasses total diagnostic run.
+  - `evidencetool.provider.<namespace>`: Measures individual provider collection latency, observation counts, and error/capability denials.
+  - `evidencetool.evaluation`: Measures evaluation latency and breakdown of PASS / FAIL / UNKNOWN evidence.
+  - `evidencetool.correlation`: Measures multi-signal situation signature matching and unresolved evidence tracking.
+  - `evidencetool.causality`: Measures causal tree reconstruction, identifying root causes, propagation chains, and precluded outage hypotheses.
+  - `evidencetool.decision`: Records the definitive governance verdict (`ALLOW`, `BLOCK`, `HUMAN_REVIEW`), blocking evidence, and policy action.
+
+### 24.2 Semantic Attributes Specification
+| Attribute | Scope | Type | Description |
+|:---|:---|:---|:---|
+| `evidencetool.target` | Root | String | Diagnosed operational target (e.g. `nginx`, `network`). |
+| `evidencetool.policy.action` | Root / Decision | String | Governed remediation action. |
+| `evidencetool.decision.status` | Root / Decision | String | `ALLOW`, `BLOCK`, or `HUMAN_REVIEW`. |
+| `evidencetool.decision.reason` | Root / Decision | String | Deterministic human-readable explanation. |
+| `evidencetool.decision.blocking_evidence` | Root / Decision | Array[String] | IDs of evidence items triggering rejection. |
+| `evidencetool.authority.caller_id` | Root | String | Identity of caller or AI agent requesting diagnosis. |
+| `evidencetool.authority.caller_type` | Root | String | `AI_AGENT`, `HUMAN_OPERATOR`, `CI_PIPELINE`, `CONTROLLER`. |
+| `evidencetool.authority.session_id` | Root | String | Agent or workflow session identifier. |
+| `evidencetool.causality.status` | Causality | String | `ROOT_CAUSE_IDENTIFIED`, `ROOT_CAUSE_CONSTRAINED`, `ROOT_CAUSE_UNKNOWN`. |
+| `evidencetool.causality.primary_root_cause` | Causality | String | Primary root cause situation ID. |
+| `evidencetool.causality.chain` | Causality | Array[String] | Sequence of causal propagation steps. |
+| `evidencetool.causality.precluded` | Causality | Array[String] | Outage hypotheses formally refuted by healthy signals. |
+
+### 24.3 Zero-Dependency & Export Invariants
+1. **Zero Hard-Dependency**: Core EvidenceTool operates with pure standard library Python. It does not require `opentelemetry` to be installed to generate W3C trace IDs, record spans, or export OTLP/JSON.
+2. **OTLP/HTTP & File Export**: Traces can be exported directly via OTLP/HTTP JSON to OpenTelemetry Collectors (Jaeger, Tempo, Datadog) or saved locally as JSON files.
+3. **Resilient Export**: Network or exporter failures when transmitting traces never abort or corrupt the primary diagnostic evaluation. Export errors are caught and logged without side effects.
+
+### 24.4 Core Architectural Invariants
+1. **Observability Independence Invariant**: OpenTelemetry is strictly an observability integration layer. It **MUST NOT** influence EvidenceTool's deterministic diagnostic, causal, policy, or authority decisions. Spans describe operational reasoning; they never alter or determine it.
+2. **Host TracerProvider Non-Interference Invariant**: When running inside an already instrumented host application (e.g. AI agent mesh, LangChain, web service), EvidenceTool **MUST** use the host application's OpenTelemetry context via `trace.get_tracer("evidencetool", ...)` and **MUST NOT** replace, mutate, or re-initialize the host application's global `TracerProvider`. The host's span processors and active parent contexts remain completely untouched.
+
+### 24.5 Trace Context Non-Authentication Invariant
+1. **Correlation Only**: A W3C `traceparent` (passed via `AgentDiagnosisRequest.traceparent`, CLI `--traceparent`, or `TRACEPARENT` environment variable) is strictly a telemetry correlation identifier. It carries zero authentication, authorization, or capability semantics.
+2. **Authority Decoupling**: Receipt of a valid or invalid `traceparent` from an AI agent or upstream caller **MUST NEVER**:
+   - Bypass, loosen, or modify the caller's `CapabilitySet`.
+   - Substitute or spoof the caller's cryptographic `policy_fingerprint`.
+   - Reset, extend, or bypass the per-session `ProbeTracker` budget.
+   - Authorize any provider or transport not explicitly allowed by the active capability policy.
+3. **Fail-Safe Robustness**: Malformed or unparseable `traceparent` headers are handled strictly fail-safe: they log a warning and fall back to the active host OpenTelemetry span context (if present) or generate a new independent root trace ID. Malformed trace context **NEVER** raises an unhandled exception or aborts diagnostic evaluation.
+
+### 24.6 Span Status Semantics Invariant
+1. **Operational Decisions are Not Errors**: Operational verdicts (`BLOCK`, `HUMAN_REVIEW`, `ALLOW`) reflect successful policy evaluation and are recorded exclusively as semantic attributes (`evidencetool.decision.status`).
+2. **Error Status Exclusivity**: An OpenTelemetry span status of `StatusCode.ERROR` is strictly reserved for genuine execution or integrity failures:
+   - Diagnostic integrity violation (`metrics.success == False` from `validate_decision_integrity`).
+   - Uncaught crash or capability denial.
+3. **No False APM Alarms**: A legitimate `BLOCK` decision resulting from healthy verification (e.g. preventing a service restart because the TLS certificate is missing) MUST produce an OpenTelemetry span status of `StatusCode.OK` to prevent false positive error rate spikes or APM alert fatigue.
+
+### 24.7 Dual Exporter Hierarchy
+1. **Host-Managed Exporter**: When running inside an already instrumented host application, EvidenceTool spans route through the host's existing `TracerProvider` pipeline.
+2. **Official OTLP Exporter in Standalone Mode**: When executed standalone (CLI or isolated script with `--otel-endpoint`) and `opentelemetry-exporter-otlp-proto-http` is installed, EvidenceTool initializes an internal `TracerProvider` with `OTLPSpanExporter` transmitting standard binary Protobuf over HTTP (`application/x-protobuf`) without mutating the global host provider.
+3. **Pure-Python Zero-Dependency Fallback**: If the OpenTelemetry SDK/exporter packages are absent, EvidenceTool falls back to transmitting standard OTLP JSON (`application/json`) via pure Python standard library HTTP requests.

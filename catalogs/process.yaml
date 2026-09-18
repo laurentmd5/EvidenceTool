@@ -1,0 +1,46 @@
+situations:
+  PROCESS_HEALTHY:
+    description: "Process is actively running with nominal scheduler state, resources and descriptors"
+    signature:
+      process.exists: PASS
+      process.running: PASS
+      process.state: PASS
+      process.zombie: PASS
+
+  PROCESS_NOT_FOUND:
+    description: "Target process was not found in the operating system process table"
+    signature:
+      process.exists: FAIL
+
+  PROCESS_CRASHED:
+    description: "Process is registered or defunct but has no active running threads"
+    signature:
+      process.exists: PASS
+      process.running: FAIL
+
+  PROCESS_ZOMBIE:
+    description: "Process or child processes are stuck in defunct zombie state Z"
+    signature:
+      process.exists: PASS
+      process.zombie: FAIL
+
+  PROCESS_IO_WAIT:
+    description: "Process is blocked in uninterruptible sleep state D waiting on disk or network I/O"
+    signature:
+      process.exists: PASS
+      process.state: FAIL
+
+  PROCESS_CPU_SATURATION:
+    description: "Process CPU consumption has exceeded configured saturation threshold"
+    signature:
+      process.cpu_usage: FAIL
+
+  PROCESS_MEMORY_PRESSURE:
+    description: "Process memory consumption has exceeded configured threshold"
+    signature:
+      process.memory_usage: FAIL
+
+  PROCESS_FD_EXHAUSTION:
+    description: "Process open file descriptor count is nearing system limit"
+    signature:
+      process.open_files: FAIL
