@@ -26,6 +26,10 @@ from evidencetool.providers.registry import provider
 
 COLLECTOR = "redis_provider"
 
+# Safety limits for RESP parser (defense against malicious endpoints)
+MAX_RESP_BULK_SIZE = 16 * 1024 * 1024     # 16 MB max for a bulk string
+MAX_RESP_LINE_LENGTH = 64 * 1024          # 64 KB max for a single RESP line
+
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
@@ -48,6 +52,8 @@ def _read_resp_line(sock: socket.socket) -> str:
         if not chunk:
             break
         buf.extend(chunk)
+        if len(buf) > MAX_RESP_LINE_LENGTH:
+            return buf[:MAX_RESP_LINE_LENGTH].decode("utf-8", errors="replace")
         if len(buf) >= 2 and buf[-2:] == b"\r\n":
             return buf[:-2].decode("utf-8", errors="replace")
     return buf.decode("utf-8", errors="replace")
@@ -71,6 +77,8 @@ def _read_resp_response(sock: socket.socket) -> tuple[str, str]:
             return "$", content
         if length == -1:
             return "$", ""
+        if length > MAX_RESP_BULK_SIZE:
+            return "$", f"[TRUNCATED: {length} bytes exceeds {MAX_RESP_BULK_SIZE} safety limit]"
         data = bytearray()
         while len(data) < length:
             chunk = sock.recv(min(4096, length - len(data)))

@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.2] - 2026-09-18
+### Decision Correctness & Network Robustness Hardening
+- **Local Uncertainty Invariant (`P0 / HIGH-02`)**: Replaced global boolean ambiguity with per-situation `SituationEvaluation`. Unresolved evidence in unrelated domains (e.g. Redis) no longer contaminates clean, verified decisions in the target domain (e.g. Nginx).
+- **Comprehensive V2 Fallback UNKNOWN (`P0 / HIGH-01`)**: Provider failure and `CapabilityDenied` exceptions now generate fallback `UNKNOWN` observations for all evidence required by catalog situation signatures, ensuring situational policies always receive explicit evidence rather than missing entries.
+- **Bounded Redis RESP Parser (`P1 / CRIT-01`)**: Enforced `MAX_RESP_BULK_SIZE` (16 MB) and `MAX_RESP_LINE_LENGTH` (64 KB) to protect against memory exhaustion from malformed or adversarial endpoints.
+- **Bounded MySQL Handshake (`P1 / CRIT-02`)**: Enforced `MAX_MYSQL_HANDSHAKE_SIZE` (64 KB) on handshake payload reading.
+- **SSH ConnectTimeout (`P1 / HIGH-03`)**: Added explicit `ConnectTimeout` to SSH command arguments to prevent 2+ minute TCP hangs on unreachable hosts.
+- **Dependency curl Max-Time (`P2 / MED-02`)**: Added `-m` (max-time) flag to remote curl invocations in `DependencyProvider`.
+- **Integrity Duplicate Check Optimization (`P2 / MED-05`)**: Replaced $O(N^2)$ `.count()` with $O(N)$ `Counter` in `validate_decision_integrity`.
+- **Adversarial & Decision Correctness Test Suite**: Added `tests/test_decision_correctness.py` with 13 exhaustive scenarios validating local uncertainty, provider crashes, and network bounds (223 tests passing 100%).
+
 ## [1.0.1] - 2026-08-26
 ### Security & Authority Hardening
 - **Strict TLS Verification by Default (`SEC-01`)**: Dependency HTTPS probes validate certificates and hostnames (`CERT_REQUIRED`). `allow_insecure_tls` is strictly governed by `NetworkCapability`.

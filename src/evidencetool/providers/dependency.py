@@ -128,6 +128,8 @@ class DependencyProvider:
             "%{http_code}:%{time_total}",
             "--connect-timeout",
             str(int(timeout)),
+            "-m",
+            str(int(timeout)),
         ]
         if allow_insecure_tls:
             curl_cmd.append("-k")
@@ -136,6 +138,7 @@ class DependencyProvider:
         disp_cmd = [
             "curl", "-s", "-o", "/dev/null", "-w", "%{http_code}:%{time_total}",
             "--connect-timeout", str(int(timeout)),
+            "-m", str(int(timeout)),
         ]
         if allow_insecure_tls:
             disp_cmd.append("-k")

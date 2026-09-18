@@ -41,6 +41,7 @@ def run_command(
         actual_args = [
             "ssh",
             "-o", "BatchMode=yes",
+            "-o", f"ConnectTimeout={max(1, int(timeout))}",
             "-o", "ControlMaster=auto",
             "-o", f"ControlPath={control_path}",
             "-o", "ControlPersist=60s",

@@ -108,6 +108,11 @@ def diagnose(  # noqa: C901
             from evidencetool.models.observation import Observation
 
             failed_ids = [req.id for req in policy.required_evidence if req.id.startswith(f"{namespace}.")]
+            if catalog:
+                for sit in catalog:
+                    for ev_id in sit.signature:
+                        if ev_id.startswith(f"{namespace}.") and ev_id not in failed_ids:
+                            failed_ids.append(ev_id)
             for req_id in failed_ids:
                 observations.append(
                     Observation(
@@ -129,6 +134,11 @@ def diagnose(  # noqa: C901
             logger.error(f"Provider '{namespace}' execution failed: {exc}\n{traceback.format_exc()}")
 
             failed_ids = [req.id for req in policy.required_evidence if req.id.startswith(f"{namespace}.")]
+            if catalog:
+                for sit in catalog:
+                    for ev_id in sit.signature:
+                        if ev_id.startswith(f"{namespace}.") and ev_id not in failed_ids:
+                            failed_ids.append(ev_id)
             for req_id in failed_ids:
                 observations.append(
                     Observation(

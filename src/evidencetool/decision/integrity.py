@@ -33,7 +33,9 @@ def validate_decision_integrity(  # noqa: C901
 ) -> IntegrityResult:
     violations = []
     evidence_ids = [item.id for item in evidence]
-    duplicate_ids = sorted({item_id for item_id in evidence_ids if evidence_ids.count(item_id) > 1})
+    from collections import Counter
+    id_counts = Counter(evidence_ids)
+    duplicate_ids = sorted(eid for eid, count in id_counts.items() if count > 1)
     if duplicate_ids:
         violations.append(f"Evidence contains duplicate IDs: {', '.join(duplicate_ids)}.")
 
@@ -84,8 +86,13 @@ def validate_decision_integrity(  # noqa: C901
                 if blocked:
                     violations.append("Decision is ALLOW but an identified situation is explicitly blocked by policy.")
 
-                if state.ambiguous:
-                    violations.append("Decision is ALLOW but the operational state is AMBIGUOUS.")
+                # Local ambiguity invariant: ALLOW cannot be granted if an allowed situation is ambiguous
+                for allow_id in policy.allow:
+                    eval_sit = next((e for e in state.evaluations if e.situation.id == allow_id), None)
+                    if eval_sit and eval_sit.is_ambiguous:
+                        violations.append(f"Decision is ALLOW but allowed situation '{allow_id}' is AMBIGUOUS.")
+                    elif not eval_sit and state.ambiguous:
+                        violations.append("Decision is ALLOW but the operational state is AMBIGUOUS.")
 
         # V0.2 Legacy Invariants
         else:

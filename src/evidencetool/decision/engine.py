@@ -75,10 +75,8 @@ def _decide_legacy(evidence: list[Evidence], policy: Policy) -> Decision:
     )
 
 
-def _decide_v2(state: OperationalState, policy: Policy) -> Decision:
-    """Decision logic for V2_SITUATIONAL policies."""
+def _check_blocked_v2(state: OperationalState, policy: Policy) -> Decision | None:
     situation_ids = {s.id for s in state.situations}
-
     for blocked_id in policy.blocked_by:
         if blocked_id in situation_ids:
             matched_sit = next(s for s in state.situations if s.id == blocked_id)
@@ -88,43 +86,72 @@ def _decide_v2(state: OperationalState, policy: Policy) -> Decision:
                 reason=f"Situation '{blocked_id}' is explicitly blocked by policy.",
                 blocking_evidence=blocking_ev,
             )
+    return None
 
-    if state.ambiguous:
-        return Decision(
-            status=DecisionStatus.BLOCK,
-            reason="Operational state is ambiguous due to unresolved or missing evidence.",
-            blocking_evidence=state.unresolved_evidence,
-        )
 
-    allowed_id = None
+def _check_allowed_match_v2(state: OperationalState, policy: Policy) -> Decision | None:
+    situation_ids = {s.id for s in state.situations}
     for allow_id in policy.allow:
         if allow_id in situation_ids:
-            allowed_id = allow_id
-            break
+            eval_for_sit = next(
+                (ev for ev in state.evaluations if ev.situation.id == allow_id),
+                None,
+            )
+            if eval_for_sit and not eval_for_sit.is_ambiguous:
+                if policy.human_approval:
+                    return Decision(
+                        status=DecisionStatus.HUMAN_REVIEW,
+                        reason=f"Situation '{allow_id}' authorized, but this action requires human approval.",
+                        blocking_evidence=[],
+                    )
+                return Decision(
+                    status=DecisionStatus.ALLOW,
+                    reason=f"Situation '{allow_id}' authorized and no human approval required.",
+                    blocking_evidence=[],
+                )
+    return None
 
-    if not allowed_id:
-        blocking_ev_set: set[str] = set()
-        for allow_id in policy.allow:
-            blocking_ev_set.update(state.discrepancies.get(allow_id, []))
-        if not blocking_ev_set:
-            blocking_ev_set.update(req.id for req in policy.required_evidence)
-        return Decision(
-            status=DecisionStatus.BLOCK,
-            reason="No known situation matches the allowed situations for this action.",
-            blocking_evidence=sorted(blocking_ev_set),
+
+def _decide_v2(state: OperationalState, policy: Policy) -> Decision:
+    """Decision logic for V2_SITUATIONAL policies.
+
+    V1.0.2: Ambiguity is evaluated per-situation, not globally.
+    A UNKNOWN Redis evidence does not contaminate a clean Nginx decision.
+    """
+    # 1. Situations explicitly blocked by policy
+    blocked_decision = _check_blocked_v2(state, policy)
+    if blocked_decision:
+        return blocked_decision
+
+    # 2. Find an allowed situation that matches WITHOUT local ambiguity
+    allowed_decision = _check_allowed_match_v2(state, policy)
+    if allowed_decision:
+        return allowed_decision
+
+    # 3. Check if any allowed situation is ambiguous (local UNKNOWN)
+    for allow_id in policy.allow:
+        eval_for_sit = next(
+            (ev for ev in state.evaluations if ev.situation.id == allow_id),
+            None,
         )
+        if eval_for_sit and eval_for_sit.is_ambiguous:
+            blocking = eval_for_sit.unresolved_evidence
+            return Decision(
+                status=DecisionStatus.BLOCK,
+                reason=f"Situation '{allow_id}' cannot be evaluated: unresolved evidence.",
+                blocking_evidence=blocking,
+            )
 
-    if policy.human_approval:
-        return Decision(
-            status=DecisionStatus.HUMAN_REVIEW,
-            reason=f"Situation '{allowed_id}' authorized, but this action requires human approval.",
-            blocking_evidence=[],
-        )
-
+    # 4. No situation matches the allowed list
+    blocking_ev_set: set[str] = set()
+    for allow_id in policy.allow:
+        blocking_ev_set.update(state.discrepancies.get(allow_id, []))
+    if not blocking_ev_set:
+        blocking_ev_set.update(req.id for req in policy.required_evidence)
     return Decision(
-        status=DecisionStatus.ALLOW,
-        reason=f"Situation '{allowed_id}' authorized and no human approval required.",
-        blocking_evidence=[],
+        status=DecisionStatus.BLOCK,
+        reason="No known situation matches the allowed situations for this action.",
+        blocking_evidence=sorted(blocking_ev_set),
     )
 
 

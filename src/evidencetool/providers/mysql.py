@@ -24,6 +24,7 @@ from evidencetool.providers.base import ProviderContext
 from evidencetool.providers.registry import provider
 
 COLLECTOR = "mysql_provider"
+MAX_MYSQL_HANDSHAKE_SIZE = 65536  # 64 KB — handshake packets have no reason to be larger
 
 
 def _now() -> datetime:
@@ -209,6 +210,8 @@ class MySQLProvider:
                 if len(header) < 4:
                     raise OSError("Incomplete MySQL packet header")
                 payload_len = int.from_bytes(header[:3], "little")
+                if payload_len > MAX_MYSQL_HANDSHAKE_SIZE:
+                    raise OSError(f"MySQL handshake packet too large: {payload_len} bytes")
                 payload = s.recv(payload_len)
                 latency_ms = round((time.time() - t0) * 1000.0, 2)
 
