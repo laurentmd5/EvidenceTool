@@ -741,7 +741,7 @@ def test_block_and_human_review_are_not_error_spans():
     res = diagnose(
         target="nginx",
         policy=policy,
-        context={},
+        context={"config_path": "/definitely/missing/evidencetool-nginx.conf"},
         tracer=tracer,
     )
 
