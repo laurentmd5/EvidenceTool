@@ -4,7 +4,7 @@
 
 ## Versions Prises en Charge
 
-Actuellement, EvidenceTool est en version (`1.0.5`). Les mises à jour de sécurité sont appliquées aux branches de développement et main.
+Actuellement, EvidenceTool est en version (`1.0.6`). Les mises à jour de sécurité sont appliquées aux branches de développement et main.
 
 | Version | Prise en charge    |
 | ------- | ------------------ |

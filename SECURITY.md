@@ -4,7 +4,7 @@
 
 ## Supported Versions
 
-Currently, EvidenceTool is in release (`1.0.5`). Security updates are applied to the development and main branches.
+Currently, EvidenceTool is in release (`1.0.6`). Security updates are applied to the development and main branches.
 
 | Version | Supported          |
 | ------- | ------------------ |

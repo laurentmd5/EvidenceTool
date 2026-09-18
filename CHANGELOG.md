@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.6] - 2026-09-18
+### Mode C Hybrid Causal Reasoning Adversarial Hardening
+- **Pre-Arbitration Graph Validation & Cycle Detection (`C7`)**:
+  - Implemented `_detect_cycles()` performing deterministic cycle finding prior to root candidate arbitration.
+  - Enforced the invariant: *Causal graph validation MUST happen before causal arbitration*.
+  - Fixed `ValueError` in `_arbitrate_candidates` when all confirmed nodes form a directed cycle ($A \longrightarrow B \longrightarrow A$).
+  - In the presence of a cycle, the engine gracefully avoids crashing, sets `primary_root_cause = None`, preserves candidates with `state = POSSIBLE`, and reports detected cycle paths in `cycles_detected`.
+- **Topological Chain Preservation & Strict Ordering (`C8`)**:
+  - Enforced strict deterministic node ordering in `_find_causal_path` and `_build_causal_chain` via sorted neighbor traversal.
+  - Long multi-hop chains ($A \longrightarrow B \longrightarrow C \longrightarrow D \longrightarrow S$) retain all intermediate nodes in strictly ordered topological sequence ($[A, B, C, D, S]$).
+- **Priority Disambiguation & Priority Tie Invariant (`C9`, `C9b`)**:
+  - Explicit integer `priority: <int>` deterministically elects the highest-priority root candidate.
+  - Added Priority Tie Invariant: if multiple roots share the exact same maximum priority, no dictionary or file insertion order tie-breaking is permitted $\to$ `ROOT_CAUSE_CONSTRAINED` with all candidates preserved as `POSSIBLE`.
+- **Indispensable Prerequisite Semantics (`C11`, `C12`)**:
+  - Formalized tripartite behavior of `REQUIRES`:
+    - $B = \text{PASS} \implies A$ may be confirmed.
+    - $B = \text{UNKNOWN} \implies A$ transitions to `UNRESOLVED` (recorded in `unresolved_hypotheses` with `missing_evidence: [B]`).
+    - $B = \text{FAIL} \implies A$ is formally refuted / precluded by prerequisite failure and added to `precluded_hypotheses`.
+- **Zero Implicit Causality Enforced (`C13`)**:
+  - Verified that concurrent failures without declared causal rules in catalogs produce zero causal inference (`primary_root_cause = None`, `causal_chain = []`, `status = ROOT_CAUSE_UNKNOWN`).
+- **Comprehensive Adversarial Verification Suite**:
+  - Added `tests/test_causality_mode_c_adversarial.py` containing 11 tests verifying scenarios C7 to C13.
+  - Test suite expanded from 275 to 286 tests passing 100% with strict type safety (`mypy`), linting (`ruff`), and security scanning (`bandit`).
+
 ## [1.0.5] - 2026-09-18
 ### Mode C Hybrid Causal Reasoning Engine (Phase 2)
 - **Deterministic Causal Graph Engine Refactoring**:

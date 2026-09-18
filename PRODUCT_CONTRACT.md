@@ -709,9 +709,9 @@ EvidenceTool produces distributed OpenTelemetry traces mapping its internal oper
 
 ---
 
-## 26. Mode C Hybrid Causal Reasoning Contract (V1.0.5 Contract)
+## 26. Mode C Hybrid Causal Reasoning & Adversarial Hardening Contract (V1.0.6 Contract)
 
-### 26.1 Zero Implicit Causality Invariant
+### 26.1 Zero Implicit Causality Invariant (C13)
 1. **No Tacit Assumptions**: Two failing situations or observations occurring simultaneously carry zero causal relationship unless formally linked by a declarative causal rule in a loaded causality catalog (`causality/*.yaml`).
 2. **No Arbitrary Association**: If surface symptoms are observed and native physical probes fail without a declared causal rule connecting them, the engine MUST NOT fabricate a link: `primary_root_cause = None`, `status = ROOT_CAUSE_UNKNOWN`, `causal_chain = []`.
 
@@ -725,21 +725,27 @@ Every root-cause candidate hypothesis evaluated by EvidenceTool is assigned a st
 1. **Local Ambiguity Bound**: An `UNKNOWN` evidence state affects only hypotheses whose signature, rule conditions, or `REQUIRES` relations depend on that specific evidence.
 2. **Disjoint Subgraph Immunity**: Unrelated probe uncertainties (e.g. a timed-out TLS certificate check on a disjoint network path) MUST NEVER contaminate or invalidate an independently verified causal chain (e.g. PostgreSQL connection pool exhaustion).
 
-### 26.4 Deterministic Multi-Candidate Arbitration Invariant
+### 26.4 Deterministic Multi-Candidate Arbitration Invariant (C9, C9b, C10)
 1. **Zero Guesswork**: The engine is strictly forbidden from random selection, Bayesian heuristics, or LLM-based tie-breaking.
-2. **Non-Arbitrary Retention**: When multiple causes are simultaneously confirmed without declared hierarchy or catalog `priority`:
+2. **Non-Arbitrary Retention (C10)**: When multiple causes are simultaneously confirmed without declared hierarchy or catalog `priority`:
    - `primary_root_cause = None`
    - `status = ROOT_CAUSE_CONSTRAINED`
    - All concurrent candidates are preserved with `state = POSSIBLE`.
-3. **Hierarchical & Explicit Resolution**: Disambiguation is permitted ONLY when:
-   - A multi-hop directed path exists in the causal graph establishing that one candidate is mathematically upstream of the other ($C_1 \longrightarrow^* C_2$).
-   - Or an explicit catalog rule metadata `priority: <int>` deterministically designates the primary candidate.
+3. **Explicit Priority Resolution (C9)**: Disambiguation is permitted when an explicit catalog rule metadata `priority: <int>` designates the primary candidate with the strictly highest integer value.
+4. **Priority Tie Invariant (C9b)**: If multiple candidate roots share the exact same highest declared priority ($\text{priority}(A) == \text{priority}(B) == \max$), the engine MUST NOT break the tie using dictionary insertion order, file order, or alphabetical sorting. The tie cannot be resolved:
+   - `primary_root_cause = None`
+   - `status = ROOT_CAUSE_CONSTRAINED`
+   - All tied candidates are preserved with `state = POSSIBLE`.
+5. **Hierarchical Resolution**: When candidates form a multi-hop directed path in the causal graph, the upstream root candidate ($C_1 \longrightarrow^* C_2$) mathematically supersedes downstream intermediate nodes.
 
-### 26.5 Formal Causal Relations Contract
+### 26.5 Formal Causal Relations Contract (C11, C12)
 The engine evaluates three fundamental causal relations:
 1. **`PROPAGATES_TO`** ($A \longrightarrow B$): The root situation $A$ explains the downstream occurrence or propagation of symptom $B$.
 2. **`PRECLUDES`** ($A \mathrel{\rlap{\quad\not}\longrightarrow} B$): An observed condition or healthy signature $A$ formally refutes hypothesis $B$, removing it from active candidate consideration.
-3. **`REQUIRES`** ($A \xleftarrow{\text{req}} B$): Assertion of hypothesis $A$ strictly requires verification of prerequisite evidence $B$. If $B$ is `UNKNOWN`, hypothesis $A$ transitions to `UNRESOLVED`.
+3. **`REQUIRES`** ($A \xleftarrow{\text{req}} B$): Assertion of hypothesis $A$ strictly requires verification of prerequisite evidence or condition $B$:
+   - **Prerequisite Satisfied ($B = \text{PASS}$)**: Hypothesis $A$ may be confirmed if its own failure signature is satisfied.
+   - **Prerequisite Ambiguous ($B = \text{UNKNOWN}$ — C11)**: Hypothesis $A$ cannot be confirmed or refuted; it transitions to `UNRESOLVED` with `missing_evidence: [B]` and is recorded in `unresolved_hypotheses`.
+   - **Prerequisite Failed ($B = \text{FAIL}$ — C12)**: The indispensable prerequisite has failed, formally refuting hypothesis $A$. Hypothesis $A$ transitions to **`PRECLUDED`** and is recorded in `precluded_hypotheses`.
 
 ### 26.6 Causal Explanation & Provenance Schema
 Diagnostic results serialize the deterministic causal reasoning according to `schemas/diagnosis-result.schema.json`:
@@ -748,7 +754,23 @@ Diagnostic results serialize the deterministic causal reasoning according to `sc
 - `target_situation`: optional target incident situation being explained.
 - `causal_chain`: ordered list of situations from root cause to observed symptoms.
 - `propagated_symptoms`: surface symptoms explained by the graph.
-- `precluded_hypotheses`: hypotheses formally refuted by healthy signals.
+- `precluded_hypotheses`: hypotheses formally refuted by healthy signals or failed prerequisites.
 - `unresolved_hypotheses`: hypotheses whose resolution is blocked by `UNKNOWN` observations.
 - `candidate_causes`: structured list of `CausalCandidate` records (`id`, `state`, `causal_path`, `missing_evidence`, `description`).
+- `cycles_detected`: optional list of detected cycle paths (e.g. `[["A", "B", "A"]]`).
+
+### 26.7 Pre-Arbitration Graph Validation & Cycle Handling Invariant (C7)
+1. **Validation Precedence**: *Causal graph validation MUST happen before causal arbitration*. `_arbitrate_candidates()` must never assume an acyclic graph.
+2. **Cycle Detection**: The candidate propagation graph undergoes formal cycle detection prior to root candidate arbitration.
+3. **Cyclic Disambiguation Immunity**: When candidate nodes form a directed cycle ($A \longrightarrow B \longrightarrow A$), no node possesses `in_degree == 0` within the cycle. The engine MUST NOT crash on empty roots or guess a starting point:
+   - `primary_root_cause = None`
+   - `status = ROOT_CAUSE_CONSTRAINED`
+   - All cyclic candidates are preserved with `state = POSSIBLE`.
+   - The detected cycles are explicitly recorded in `cycles_detected`.
+4. **General Graph Robustness**: The engine must gracefully handle acyclic, cyclic, empty, disconnected graphs, or multiple components without ever raising an unhandled exception.
+
+### 26.8 Long Causal Chain Topological Preservation Invariant (C8)
+For any multi-hop causal propagation path ($A \longrightarrow B \longrightarrow C \longrightarrow D \longrightarrow S$):
+1. **Node Completeness**: Every intermediate causal hop must be preserved; no node may be omitted from `causal_chain`.
+2. **Strict Topological Ordering**: The ordered sequence in `causal_chain` must strictly mirror the declared directed edges ($[A, B, C, D, S]$). Arbitrary permutations (such as $[A, C, B, D, S]$) are strictly prohibited.
 

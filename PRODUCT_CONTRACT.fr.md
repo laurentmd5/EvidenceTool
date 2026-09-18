@@ -332,17 +332,34 @@ Tout dépassement de quota (`max_probes`) déclenche un arrêt immédiat avec re
 
 ---
 
-## 26. Raisonnement Causal Hybride Mode C (V1.0.5)
+## 26. Raisonnement Causal Hybride Mode C & Hardening Adversarial (Contrat V1.0.6)
 
-1. **Zéro Causalité Implicite** : Aucune relation causale n'est inférée sans règle déclarative formelle dans un catalogue causal. En l'absence de règle, `primary_root_cause = None` et `status = ROOT_CAUSE_UNKNOWN`.
+1. **Zéro Causalité Implicite (C13)** : Deux défaillances observées simultanément sans règle déclarative formelle dans un catalogue causal ne portent strictement aucune relation causale. En l'absence de règle : `primary_root_cause = None`, `causal_chain = []` et `status = ROOT_CAUSE_UNKNOWN`.
 2. **États Déterministes des Candidats** :
-   - `CONFIRMED` : Signature ou preuve physique vérifiée, règle active, aucune préclusion.
-   - `POSSIBLE` : Plusieurs causes indépendantes confirmées sans hiérarchie déclarée.
+   - `CONFIRMED` : Signature ou preuve physique vérifiée, règle active, aucune préclusion active.
+   - `POSSIBLE` : Plusieurs causes indépendantes confirmées sans hiérarchie déclarée ou en cas de cycle/égalité de priorité.
    - `UNRESOLVED` : Hypothèse explicative dont les preuves requises sont `UNKNOWN`.
 3. **Isolation d'Incertitude de Sous-Graphe** : Une observation `UNKNOWN` n'affecte que les hypothèses directement dépendantes de cette preuve. Les sous-graphes disjoints conservent leur immunité complète.
-4. **Arbitrage Déterministe Multi-Candidats** : Aucun tirage au sort ni heuristique probabiliste. En présence de causes concurrentes non ordonnées, toutes sont conservées avec `state = POSSIBLE` et `status = ROOT_CAUSE_CONSTRAINED`.
-5. **Relations Causales Formelles** :
+4. **Arbitrage Déterministe Multi-Candidats (C9, C9b, C10)** :
+   - Aucun tirage au sort ni heuristique probabiliste.
+   - Sans priorité (C10) : `primary_root_cause = None`, `status = ROOT_CAUSE_CONSTRAINED`, tous les candidats confirmés conservés avec `state = POSSIBLE`.
+   - Priorité explicite (C9) : La règle avec la plus haute valeur de métadonnée `priority: <int>` est désignée comme cause primaire (`ROOT_CAUSE_IDENTIFIED`).
+   - Égalité stricte de priorité (C9b) : Si plusieurs causes racines partagent la même priorité maximale ($\text{priority}(A) == \text{priority}(B) == \max$), le moteur s'interdit d'utiliser l'ordre d'insertion des dictionnaires Python ou du fichier YAML. L'égalité est irrésolue $\to$ `status = ROOT_CAUSE_CONSTRAINED`, `primary_root_cause = None`, tous les candidats conservés avec `state = POSSIBLE`.
+   - Résolution hiérarchique : Un chemin orienté multi-sauts ($C_1 \longrightarrow^* C_2$) désigne mathématiquement le candidat amont $C_1$ comme cause primaire par rapport aux nœuds intermédiaires.
+5. **Relations Causales Formelles (C11, C12)** :
    - `PROPAGATES_TO` ($A \longrightarrow B$) : La cause $A$ engendre le symptôme $B$.
-   - `PRECLUDES` ($A \mathrel{\rlap{\quad\not}\longrightarrow} B$) : La preuve $A$ réfute l'hypothèse $B$.
-   - `REQUIRES` ($A \xleftarrow{\text{req}} B$) : L'hypothèse $A$ requiert la confirmation préalable de la preuve $B$.
-6. **Schéma d'Explication Causale** : Restitution complète dans le résultat de diagnostic (`candidate_causes`, `precluded_hypotheses`, `unresolved_hypotheses`, `causal_chain`).
+   - `PRECLUDES` ($A \mathrel{\rlap{\quad\not}\longrightarrow} B$) : La preuve $A$ réfute formellement l'hypothèse $B$.
+   - `REQUIRES` ($A \xleftarrow{\text{req}} B$) : L'hypothèse $A$ requiert la vérification préalable de la précondition $B$ :
+     - Si $B = \text{PASS}$ : $A$ peut être évalué et confirmé.
+     - Si $B = \text{UNKNOWN}$ (C11) : $A$ devient `UNRESOLVED` avec `missing_evidence: [B]`, consigné dans `unresolved_hypotheses`.
+     - Si $B = \text{FAIL}$ (C12) : Le prérequis indispensable ayant échoué, l'hypothèse $A$ est formellement réfutée $\to A$ devient **`PRECLUDED`**, consigné dans `precluded_hypotheses`.
+6. **Schéma d'Explication Causale & Provenance** : Restitution complète dans le résultat de diagnostic (`status`, `primary_root_cause`, `causal_chain`, `propagated_symptoms`, `precluded_hypotheses`, `unresolved_hypotheses`, `candidate_causes`, `cycles_detected`).
+7. **Validation Préalable du Graphe & Gestion des Cycles (C7)** :
+   - *La validation du graphe causal DOIT précéder l'arbitrage causal*. `_arbitrate_candidates()` ne doit jamais présupposer un graphe acyclique.
+   - Détection explicite des cycles avant l'élection d'une racine.
+   - En cas de cycle causal ($A \longrightarrow B \longrightarrow A$), aucun nœud ne possède `in_degree == 0` au sein du cycle. Le moteur ne doit jamais lever d'exception sur un ensemble de racines vide : `primary_root_cause = None`, `status = ROOT_CAUSE_CONSTRAINED`, candidats préservés avec `state = POSSIBLE`, et cycles répertoriés dans `cycles_detected`.
+   - Robustesse générale : Le moteur gère sans exception les graphes acycliques, cycliques, vides, déconnectés ou multi-composantes.
+8. **Préservation Topologique des Chaînes Longues (C8)** :
+   - Pour tout chemin multi-sauts ($A \longrightarrow B \longrightarrow C \longrightarrow D \longrightarrow S$) :
+     - Intégrité : Aucun nœud intermédiaire n'est omis dans `causal_chain`.
+     - Ordre topologique strict : La séquence ordonnée dans `causal_chain` respecte scrupuleusement les arêtes déclarées ($[A, B, C, D, S]$). Toute permutation arbitraire est proscrite.

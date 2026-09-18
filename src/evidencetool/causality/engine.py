@@ -67,8 +67,43 @@ def _evaluate_preclusions(
     return precluded
 
 
+def _detect_cycles(graph: dict[str, list[str]]) -> list[list[str]]:
+    """
+    Deterministically detects directed cycles in the causal graph.
+    Returns sorted list of canonical cycle paths (e.g. [['A', 'B', 'A']]).
+    """
+    visited: dict[str, int] = {}  # 1 = visiting, 2 = done
+    path: list[str] = []
+    cycles: list[list[str]] = []
+    seen_cycle_tuples: set[tuple[str, ...]] = set()
+
+    def dfs(u: str) -> None:
+        visited[u] = 1
+        path.append(u)
+        for v in sorted(graph.get(u, [])):
+            if visited.get(v) == 1:
+                cycle_start = path.index(v)
+                cycle = path[cycle_start:] + [v]
+                nodes_in_cycle = cycle[:-1]
+                min_idx = nodes_in_cycle.index(min(nodes_in_cycle))
+                canonical = tuple(nodes_in_cycle[min_idx:] + nodes_in_cycle[:min_idx] + [nodes_in_cycle[min_idx]])
+                if canonical not in seen_cycle_tuples:
+                    seen_cycle_tuples.add(canonical)
+                    cycles.append(list(canonical))
+            elif visited.get(v) != 2:
+                dfs(v)
+        path.pop()
+        visited[u] = 2
+
+    for node in sorted(graph.keys()):
+        if visited.get(node) != 2:
+            dfs(node)
+
+    return sorted(cycles, key=lambda c: (len(c), c))
+
+
 def _find_causal_path(start: str, target: str, graph: dict[str, list[str]]) -> list[str]:
-    """Finds a shortest directed path from start to target in the graph."""
+    """Finds a shortest directed path from start to target in the graph with deterministic ordering."""
     if start == target:
         return [start]
     visited = {start}
@@ -76,7 +111,7 @@ def _find_causal_path(start: str, target: str, graph: dict[str, list[str]]) -> l
     while queue:
         path = queue.popleft()
         node = path[-1]
-        for neighbor in graph.get(node, []):
+        for neighbor in sorted(graph.get(node, [])):
             if neighbor == target:
                 return path + [neighbor]
             if neighbor not in visited:
@@ -86,20 +121,20 @@ def _find_causal_path(start: str, target: str, graph: dict[str, list[str]]) -> l
 
 
 def _build_causal_chain(root: str, graph: dict[str, list[str]], symptoms: list[str]) -> list[str]:
-    """Reconstructs the full causal propagation chain from root to symptoms."""
+    """Reconstructs the full causal propagation chain from root to symptoms preserving topological order."""
     chain = [root]
     visited = {root}
     queue = deque([root])
 
     while queue:
         curr = queue.popleft()
-        for nxt in graph.get(curr, []):
+        for nxt in sorted(graph.get(curr, [])):
             if nxt not in visited:
                 visited.add(nxt)
                 chain.append(nxt)
                 queue.append(nxt)
 
-    for s in symptoms:
+    for s in sorted(symptoms):
         if s not in visited and s != root:
             chain.append(s)
             visited.add(s)
@@ -306,19 +341,29 @@ def _arbitrate_candidates(
             primary = roots[0].id
             return primary, CausalityStatus.ROOT_CAUSE_IDENTIFIED, _build_causal_chain(primary, graph, propagated_symptoms), candidates
 
-        max_prio = max(
-            (rule_by_source[c.id].priority if c.id in rule_by_source else 0)
-            for c in roots
-        )
-        prio_cands = [
-            c for c in roots
-            if (rule_by_source[c.id].priority if c.id in rule_by_source else 0) == max_prio
-        ]
-        if max_prio > 0 and len(prio_cands) == 1:
-            primary = prio_cands[0].id
-            return primary, CausalityStatus.ROOT_CAUSE_IDENTIFIED, _build_causal_chain(primary, graph, propagated_symptoms), candidates
+        if roots:
+            priorities = [
+                (rule_by_source[c.id].priority if c.id in rule_by_source else 0)
+                for c in roots
+            ]
+            max_prio = max(priorities)
+            prio_cands = [
+                c for c in roots
+                if (rule_by_source[c.id].priority if c.id in rule_by_source else 0) == max_prio
+            ]
+            # C9: single highest priority candidate wins
+            # C9b: if multiple candidates share the exact same max priority, do NOT tie-break!
+            if max_prio > 0 and len(prio_cands) == 1:
+                primary = prio_cands[0].id
+                return (
+                    primary,
+                    CausalityStatus.ROOT_CAUSE_IDENTIFIED,
+                    _build_causal_chain(primary, graph, propagated_symptoms),
+                    candidates,
+                )
 
-        # Multi-candidate ambiguity
+        # Multi-candidate ambiguity (roots is empty due to cycles, priority tie, or unranked roots):
+        # All confirmed candidates are preserved with state = POSSIBLE
         updated = [
             CausalCandidate(
                 id=c.id,
@@ -376,6 +421,8 @@ def reconstruct_causality(
         )
 
     graph, reverse_graph, in_degree, all_nodes = _build_graph(prop_rules)
+    detected_cycles = _detect_cycles(graph)
+
     symptom_nodes, propagated_symptoms = _collect_symptoms(
         prop_rules, evidence_list, all_nodes, matched_situations
     )
@@ -423,4 +470,5 @@ def reconstruct_causality(
         unresolved_hypotheses=sorted(set(unresolved_hypotheses)),
         candidate_causes=final_candidates,
         confidence="DETERMINISTIC" if status == CausalityStatus.ROOT_CAUSE_IDENTIFIED else "CONSTRAINED",
+        cycles_detected=detected_cycles,
     )

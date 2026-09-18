@@ -130,6 +130,7 @@ class CausalExplanation:
     unresolved_hypotheses: list[str] = field(default_factory=list)
     candidate_causes: list[CausalCandidate] = field(default_factory=list)
     confidence: str = "DETERMINISTIC"
+    cycles_detected: list[list[str]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         candidates_out: list[Any] = []
@@ -152,4 +153,6 @@ class CausalExplanation:
             d["target_situation"] = self.target_situation
         if self.unresolved_hypotheses:
             d["unresolved_hypotheses"] = self.unresolved_hypotheses
+        if self.cycles_detected:
+            d["cycles_detected"] = self.cycles_detected
         return d
