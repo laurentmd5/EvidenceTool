@@ -38,6 +38,11 @@ def _parse_rule(item: dict[str, object]) -> CausalRule:
 
     conditions = _parse_conditions(item.get("conditions", {}))
 
+    try:
+        priority = int(str(item.get("priority", 0)))
+    except (ValueError, TypeError):
+        priority = 0
+
     return CausalRule(
         id=rule_id,
         source=source,
@@ -47,6 +52,7 @@ def _parse_rule(item: dict[str, object]) -> CausalRule:
         description=str(item.get("description", "")),
         is_root_cause_candidate=bool(item.get("is_root_cause_candidate", True)),
         is_surface_symptom=bool(item.get("is_surface_symptom", False)),
+        priority=priority,
     )
 
 

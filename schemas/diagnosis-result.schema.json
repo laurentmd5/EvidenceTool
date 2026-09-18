@@ -91,10 +91,30 @@
       "properties": {
         "status": { "enum": ["ROOT_CAUSE_IDENTIFIED", "ROOT_CAUSE_CONSTRAINED", "ROOT_CAUSE_UNKNOWN"] },
         "primary_root_cause": { "type": ["string", "null"] },
+        "target_situation": { "type": ["string", "null"] },
         "causal_chain": { "type": "array", "items": { "type": "string" } },
         "propagated_symptoms": { "type": "array", "items": { "type": "string" } },
         "precluded_hypotheses": { "type": "array", "items": { "type": "string" } },
-        "candidate_causes": { "type": "array", "items": { "type": "string" } },
+        "unresolved_hypotheses": { "type": "array", "items": { "type": "string" } },
+        "candidate_causes": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              { "type": "string" },
+              {
+                "type": "object",
+                "required": ["id", "state"],
+                "properties": {
+                  "id": { "type": "string" },
+                  "state": { "enum": ["CONFIRMED", "POSSIBLE", "UNRESOLVED"] },
+                  "causal_path": { "type": "array", "items": { "type": "string" } },
+                  "missing_evidence": { "type": "array", "items": { "type": "string" } },
+                  "description": { "type": "string" }
+                }
+              }
+            ]
+          }
+        },
         "confidence": { "type": "string" }
       }
     },

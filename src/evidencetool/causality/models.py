@@ -28,6 +28,56 @@ class CausalRelationType(str, Enum):
     TRIGGERS = "TRIGGERS"
     SYMPTOM_OF = "SYMPTOM_OF"
     PRECLUDES = "PRECLUDES"
+    REQUIRES = "REQUIRES"
+
+
+class CausalCandidateState(str, Enum):
+    """Deterministic validation state of a causal hypothesis."""
+    CONFIRMED = "CONFIRMED"
+    POSSIBLE = "POSSIBLE"
+    UNRESOLVED = "UNRESOLVED"
+
+
+@dataclass(frozen=True)
+class CausalCandidate:
+    """
+    A candidate root-cause situation evaluated by the causal engine.
+    """
+    id: str
+    state: CausalCandidateState
+    causal_path: list[str] = field(default_factory=list)
+    missing_evidence: list[str] = field(default_factory=list)
+    description: str = ""
+
+    def __str__(self) -> str:
+        return self.id
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, str):
+            return self.id == other
+        if isinstance(other, CausalCandidate):
+            return (
+                self.id == other.id
+                and self.state == other.state
+                and self.causal_path == other.causal_path
+                and self.missing_evidence == other.missing_evidence
+            )
+        return False
+
+    def __hash__(self) -> int:
+        return hash((self.id, self.state))
+
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {
+            "id": self.id,
+            "state": self.state.value,
+            "causal_path": self.causal_path,
+        }
+        if self.missing_evidence:
+            d["missing_evidence"] = self.missing_evidence
+        if self.description:
+            d["description"] = self.description
+        return d
 
 
 @dataclass(frozen=True)
@@ -50,6 +100,7 @@ class CausalRule:
     description: str = ""
     is_root_cause_candidate: bool = True
     is_surface_symptom: bool = False
+    priority: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -61,6 +112,7 @@ class CausalRule:
             "description": self.description,
             "is_root_cause_candidate": self.is_root_cause_candidate,
             "is_surface_symptom": self.is_surface_symptom,
+            "priority": self.priority,
         }
 
 
@@ -71,19 +123,33 @@ class CausalExplanation:
     """
     status: CausalityStatus
     primary_root_cause: str | None = None
+    target_situation: str | None = None
     causal_chain: list[str] = field(default_factory=list)
     propagated_symptoms: list[str] = field(default_factory=list)
     precluded_hypotheses: list[str] = field(default_factory=list)
-    candidate_causes: list[str] = field(default_factory=list)
+    unresolved_hypotheses: list[str] = field(default_factory=list)
+    candidate_causes: list[CausalCandidate] = field(default_factory=list)
     confidence: str = "DETERMINISTIC"
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        candidates_out: list[Any] = []
+        for cand in self.candidate_causes:
+            if hasattr(cand, "to_dict"):
+                candidates_out.append(cand.to_dict())
+            else:
+                candidates_out.append(cand)
+
+        d: dict[str, Any] = {
             "status": self.status.value,
             "primary_root_cause": self.primary_root_cause,
             "causal_chain": self.causal_chain,
             "propagated_symptoms": self.propagated_symptoms,
             "precluded_hypotheses": self.precluded_hypotheses,
-            "candidate_causes": self.candidate_causes,
+            "candidate_causes": candidates_out,
             "confidence": self.confidence,
         }
+        if self.target_situation is not None:
+            d["target_situation"] = self.target_situation
+        if self.unresolved_hypotheses:
+            d["unresolved_hypotheses"] = self.unresolved_hypotheses
+        return d

@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.5] - 2026-09-18
+### Mode C Hybrid Causal Reasoning Engine (Phase 2)
+- **Deterministic Causal Graph Engine Refactoring**:
+  - Removed all hardcoded indicators and hardcoded preclusions from Python code in favor of 100% declarative YAML rules.
+  - Implemented formal support for 3 fundamental causal relations: `PROPAGATES_TO` ($A \longrightarrow B$), `PRECLUDES` ($A \mathrel{\rlap{\quad\not}\longrightarrow} B$), and `REQUIRES` ($A \xleftarrow{\text{req}} B$).
+  - Implemented Subgraph Uncertainty Isolation: an `UNKNOWN` observation affects only hypotheses directly dependent on it, preserving complete immunity for disjoint probe subgraphs.
+- **Deterministic Multi-Candidate Arbitration**:
+  - Eliminated arbitrary tie-breaking: when multiple independent root causes are confirmed concurrently without priority or hierarchy, all candidates are preserved as `POSSIBLE` with `status = ROOT_CAUSE_CONSTRAINED` and `primary_root_cause = None`.
+  - Deterministic resolution enabled exclusively via multi-hop causal graph hierarchy or explicit catalog rule `priority: <int>`.
+  - Zero implicit causality: multiple failing situations without declared causal propagation rules evaluate to `status = ROOT_CAUSE_UNKNOWN` and `causal_chain = []`.
+- **Causal Domain Models & Schema Alignment**:
+  - Extended domain models with `CausalCandidateState` (`CONFIRMED`, `POSSIBLE`, `UNRESOLVED`), `CausalCandidate` dataclass, and `unresolved_hypotheses`.
+  - Updated `schemas/diagnosis-result.schema.json` to support both string identifiers and structured candidate objects backward-compatibly.
+- **Formal Verification Suite (Scenarios C1 to C6)**:
+  - Added dedicated test suite `tests/test_causality_mode_c.py` verifying scenarios C1–C6 and the `REQUIRES` causal relation.
+  - Test suite expanded to 275 tests passing 100% with strict type safety (`mypy`), linting (`ruff`), and security scanning (`bandit`).
+- **Product Contract Formalization**:
+  - Added Section 26 to `PRODUCT_CONTRACT.md` detailing the 6 core invariants of Mode C Hybrid Causal Reasoning.
+
 ## [1.0.4] - 2026-09-18
 ### OpenTelemetry Mode A Inbound Telemetry & Mode C Hybrid Correlation
 - **Inbound Telemetry Provider (`otel`)**:

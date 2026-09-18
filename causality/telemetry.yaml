@@ -26,7 +26,19 @@ causal_rules:
     is_root_cause_candidate: true
     is_surface_symptom: false
 
-  # 3. Healthy Telemetry Precludes Active Service Outage Hypotheses
+  # 3. Native Redis Memory Exhaustion -> Inbound OTel Surface Error Rate
+  - id: REDIS_OOM_TO_OTEL_ERROR_RATE
+    source: REDIS_OOM_MAXMEMORY
+    target: SERVICE_ERROR_RATE_EXCEEDED
+    relation: PROPAGATES_TO
+    conditions:
+      redis.memory_pressure: FAIL
+      otel.http_error_rate: FAIL
+    description: "Redis memory exhaustion propagates to application HTTP 5xx errors in OTel"
+    is_root_cause_candidate: true
+    is_surface_symptom: false
+
+  # 4. Healthy Telemetry Precludes Active Service Outage Hypotheses
   - id: TELEMETRY_NOMINAL_PRECLUDES_OUTAGE
     source: SERVICE_TELEMETRY_NOMINAL
     target: SERVICE_ERROR_RATE_EXCEEDED
@@ -36,3 +48,22 @@ causal_rules:
     description: "Observed nominal error rate and healthy telemetry formally refutes active outage hypotheses"
     is_root_cause_candidate: false
     is_surface_symptom: false
+
+  # 5. Native Infrastructure Health Precludes Respective Incident Hypotheses
+  - id: POSTGRES_HEALTHY_PRECLUDES_POOL_EXHAUSTED
+    source: POSTGRES_HEALTHY
+    target: POSTGRES_POOL_EXHAUSTED
+    relation: PRECLUDES
+    conditions:
+      postgres.pool_exhaustion: PASS
+    description: "Nominal database connection pool refutes pool exhaustion hypothesis"
+    is_root_cause_candidate: false
+
+  - id: REDIS_HEALTHY_PRECLUDES_OOM
+    source: REDIS_HEALTHY
+    target: REDIS_OOM_MAXMEMORY
+    relation: PRECLUDES
+    conditions:
+      redis.memory_pressure: PASS
+    description: "Nominal Redis memory usage refutes OOM maxmemory hypothesis"
+    is_root_cause_candidate: false

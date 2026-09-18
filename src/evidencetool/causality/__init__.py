@@ -5,6 +5,8 @@ Causality module exports.
 from evidencetool.causality.engine import reconstruct_causality
 from evidencetool.causality.loader import load_causal_catalog
 from evidencetool.causality.models import (
+    CausalCandidate,
+    CausalCandidateState,
     CausalExplanation,
     CausalityStatus,
     CausalRelationType,
@@ -12,6 +14,8 @@ from evidencetool.causality.models import (
 )
 
 __all__ = [
+    "CausalCandidate",
+    "CausalCandidateState",
     "CausalExplanation",
     "CausalRelationType",
     "CausalRule",

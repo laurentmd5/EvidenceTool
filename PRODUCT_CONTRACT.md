@@ -700,7 +700,53 @@ EvidenceTool produces distributed OpenTelemetry traces mapping its internal oper
    - `max_lookback_seconds`: bounds trace search time window.
 2. **Pre-Deserialization Stream Bounding**: Socket streams MUST be bounded during read (`read(limit + 1)`). If the payload exceeds the budget, the stream is aborted immediately before invoking JSON deserialization (`json.loads()`).
 
-### 25.6 Hybrid Causality Invariant (Mode C)
+### 25.6 Hybrid Causality Invariant (Mode C Bridge)
 1. **Surface Symptoms vs. Physical Root Causes**: Inbound telemetry signals (e.g. `otel.http_error_rate`, `otel.p99_latency_ms`) are modeled in the causal engine as surface symptoms (`is_surface_symptom: true`), not as physical root causes.
 2. **Deterministic Root-Cause Reconstruction**: When surface telemetry symptoms correlate with native physical probes (e.g. `postgres.pool_exhaustion: FAIL`, `redis.memory_pressure: FAIL`), the causal engine constructs a causal propagation chain attributing the root cause to the physical failure (`relation: PROPAGATES_TO`).
-3. **Hypothesis Preclusion**: Nominal telemetry (`SERVICE_TELEMETRY_NOMINAL`) formally refutes and precludes active outage hypotheses (`relation: PRECLUDES`), preventing unnecessary service restarts or destructive automated rollbacks.
+3. **Hypothesis Preclusion**: Nominal telemetry (`SERVICE_TELEMETRY_NOMINAL`) formally refutes and precludes active outage hypotheses (`relation: PRECLUDES`), preventing unnecessary service restarts or destructive automated rollbacks.
+
+---
+
+## 26. Mode C Hybrid Causal Reasoning Contract (V1.0.5 Contract)
+
+### 26.1 Zero Implicit Causality Invariant
+1. **No Tacit Assumptions**: Two failing situations or observations occurring simultaneously carry zero causal relationship unless formally linked by a declarative causal rule in a loaded causality catalog (`causality/*.yaml`).
+2. **No Arbitrary Association**: If surface symptoms are observed and native physical probes fail without a declared causal rule connecting them, the engine MUST NOT fabricate a link: `primary_root_cause = None`, `status = ROOT_CAUSE_UNKNOWN`, `causal_chain = []`.
+
+### 26.2 Deterministic Candidate States Invariant
+Every root-cause candidate hypothesis evaluated by EvidenceTool is assigned a strictly deterministic state:
+1. **CONFIRMED**: The situation signature or direct physical evidence is verified (`FAIL`), the causal propagation rule is active, and no active preclusion contradicts it.
+2. **POSSIBLE**: Multiple independent root causes are confirmed for the same incident symptom without declared priority or hierarchical cascade.
+3. **UNRESOLVED**: The causal hypothesis explains the symptom, but required physical evidence evaluates to `UNKNOWN` (timeout, unreachable probe, network error).
+
+### 26.3 Subgraph Uncertainty Isolation Invariant
+1. **Local Ambiguity Bound**: An `UNKNOWN` evidence state affects only hypotheses whose signature, rule conditions, or `REQUIRES` relations depend on that specific evidence.
+2. **Disjoint Subgraph Immunity**: Unrelated probe uncertainties (e.g. a timed-out TLS certificate check on a disjoint network path) MUST NEVER contaminate or invalidate an independently verified causal chain (e.g. PostgreSQL connection pool exhaustion).
+
+### 26.4 Deterministic Multi-Candidate Arbitration Invariant
+1. **Zero Guesswork**: The engine is strictly forbidden from random selection, Bayesian heuristics, or LLM-based tie-breaking.
+2. **Non-Arbitrary Retention**: When multiple causes are simultaneously confirmed without declared hierarchy or catalog `priority`:
+   - `primary_root_cause = None`
+   - `status = ROOT_CAUSE_CONSTRAINED`
+   - All concurrent candidates are preserved with `state = POSSIBLE`.
+3. **Hierarchical & Explicit Resolution**: Disambiguation is permitted ONLY when:
+   - A multi-hop directed path exists in the causal graph establishing that one candidate is mathematically upstream of the other ($C_1 \longrightarrow^* C_2$).
+   - Or an explicit catalog rule metadata `priority: <int>` deterministically designates the primary candidate.
+
+### 26.5 Formal Causal Relations Contract
+The engine evaluates three fundamental causal relations:
+1. **`PROPAGATES_TO`** ($A \longrightarrow B$): The root situation $A$ explains the downstream occurrence or propagation of symptom $B$.
+2. **`PRECLUDES`** ($A \mathrel{\rlap{\quad\not}\longrightarrow} B$): An observed condition or healthy signature $A$ formally refutes hypothesis $B$, removing it from active candidate consideration.
+3. **`REQUIRES`** ($A \xleftarrow{\text{req}} B$): Assertion of hypothesis $A$ strictly requires verification of prerequisite evidence $B$. If $B$ is `UNKNOWN`, hypothesis $A$ transitions to `UNRESOLVED`.
+
+### 26.6 Causal Explanation & Provenance Schema
+Diagnostic results serialize the deterministic causal reasoning according to `schemas/diagnosis-result.schema.json`:
+- `status`: `ROOT_CAUSE_IDENTIFIED` | `ROOT_CAUSE_CONSTRAINED` | `ROOT_CAUSE_UNKNOWN`.
+- `primary_root_cause`: `str | None`.
+- `target_situation`: optional target incident situation being explained.
+- `causal_chain`: ordered list of situations from root cause to observed symptoms.
+- `propagated_symptoms`: surface symptoms explained by the graph.
+- `precluded_hypotheses`: hypotheses formally refuted by healthy signals.
+- `unresolved_hypotheses`: hypotheses whose resolution is blocked by `UNKNOWN` observations.
+- `candidate_causes`: structured list of `CausalCandidate` records (`id`, `state`, `causal_path`, `missing_evidence`, `description`).
+
