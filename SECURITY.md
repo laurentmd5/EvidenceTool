@@ -1,3 +1,5 @@
+**English** | [Français](SECURITY.fr.md)
+
 # Security Policy
 
 ## Supported Versions

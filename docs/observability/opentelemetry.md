@@ -1,3 +1,5 @@
+**English** | [Français](opentelemetry.fr.md)
+
 # OpenTelemetry Outbound Tracing (Mode B) Integration Guide
 
 EvidenceTool includes native **OpenTelemetry Mode B (Outbound Distributed Tracing)** to map its operational reasoning pipeline directly into observability backends such as **Jaeger**, **Grafana Tempo**, and standard **OpenTelemetry Collectors**.

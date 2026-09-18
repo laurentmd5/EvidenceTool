@@ -1,3 +1,5 @@
+**English** | [Français](CONTRIBUTING.fr.md)
+
 # Contributing to EvidenceTool
 
 Welcome! Before contributing, please review the strict invariants of this project. EvidenceTool's value is derived from its constraints. Any PR violating these invariants will be rejected, regardless of its utility.

@@ -1,3 +1,5 @@
+**English** | [Français](README.fr.md)
+
 # EvidenceTool (V1.0.5 — Deterministic Causal Operational Reasoning Engine)
 
 > EvidenceTool does not automate actions first. It makes operational decisions explainable first.

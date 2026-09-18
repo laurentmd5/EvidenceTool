@@ -1,3 +1,5 @@
+**English** | [Français](agent-harness.fr.md)
+
 # Agent Harness Integration Guide
 
 EvidenceTool is specifically designed to be executed by autonomous agents safely. This guide defines how an agent should wrap EvidenceTool.
