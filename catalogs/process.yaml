@@ -15,16 +15,19 @@ situations:
   PROCESS_CRASHED:
     description: "Process is registered or defunct but has no active running threads"
     signature:
+      process.exists: PASS
       process.running: FAIL
 
   PROCESS_ZOMBIE:
     description: "Process or child processes are stuck in defunct zombie state Z"
     signature:
+      process.exists: PASS
       process.zombie: FAIL
 
   PROCESS_IO_WAIT:
     description: "Process is blocked in uninterruptible sleep state D waiting on disk or network I/O"
     signature:
+      process.exists: PASS
       process.state: FAIL
 
   PROCESS_CPU_SATURATION:

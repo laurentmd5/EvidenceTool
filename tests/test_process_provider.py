@@ -8,6 +8,11 @@ from unittest.mock import Mock
 
 import pytest
 
+from evidencetool.decision.correlation import correlate_state
+from evidencetool.decision.engine import decide
+from evidencetool.diagnostic.loader import load_catalog
+from evidencetool.evidence.evaluator import evaluate_observation
+from evidencetool.policy.loader import load_policy
 from evidencetool.providers.base import ProviderContext
 from evidencetool.providers.process import ProcessProvider
 from evidencetool.providers.registry import get_provider
@@ -65,6 +70,15 @@ def test_process_not_running(monkeypatch):
 
     assert obs_map["process.exists"].value["status"] == "FAIL"
     assert obs_map["process.running"].value["status"] == "FAIL"
+
+    state = correlate_state(
+        [evaluate_observation(observation) for observation in obs],
+        load_catalog("catalogs/process.yaml"),
+    )
+    decision = decide(state, load_policy("policies/process.yaml"))
+
+    assert decision.status.value == "ALLOW"
+    assert "PROCESS_NOT_FOUND" in decision.reason
 
 
 def test_process_zombie_detected(monkeypatch):
