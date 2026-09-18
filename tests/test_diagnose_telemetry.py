@@ -221,3 +221,93 @@ def test_mode_c_hybrid_causality_reconstruction():
     assert causality.primary_root_cause == "POSTGRES_POOL_EXHAUSTED"
     assert "POSTGRES_POOL_EXHAUSTED" in causality.causal_chain
     assert "SERVICE_ERROR_RATE_EXCEEDED" in causality.causal_chain
+
+
+def test_same_observation_multi_policy_interpretation():
+    """
+    Formal invariant: Provider observes; Policy interprets.
+    A single raw observation (7% error rate) evaluates to FAIL under a strict policy (threshold 5%)
+    and to PASS under a permissive policy (threshold 10%) without mutating the provider.
+    """
+    from evidencetool.models.policy import EvidenceRequirement
+
+    raw_obs = Observation(
+        id="otel.http_error_rate",
+        source="otel",
+        category="metric",
+        collector="otel_provider",
+        method="promql_query(...)",
+        value={"value": 0.07, "unit": "ratio", "service": "order-service"},
+        message="Order service HTTP error rate is 7%",
+        observed_at=datetime.now(timezone.utc),
+    )
+
+    # Policy A: Strict 5% SLA threshold
+    req_strict = EvidenceRequirement(id="otel.http_error_rate", threshold=0.05, comparator="<=")
+    ev_strict = evaluate_observation(raw_obs, requirement=req_strict)
+    assert ev_strict.status == EvidenceStatus.FAIL
+
+    # Policy B: Permissive 10% SLA threshold
+    req_permissive = EvidenceRequirement(id="otel.http_error_rate", threshold=0.10, comparator="<=")
+    ev_permissive = evaluate_observation(raw_obs, requirement=req_permissive)
+    assert ev_permissive.status == EvidenceStatus.PASS
+
+
+def test_mode_c_correlation_is_not_causality():
+    """
+    Formal invariant: Correlation is not causality.
+    Surface symptom alone (8% error rate) with healthy infrastructure MUST NOT
+    lead the causal engine to fabricate a physical root cause.
+    Only when the physical probe fails is the root cause deterministically identified.
+    """
+    def make_ev(obs_id: str, status: EvidenceStatus, value: dict | None = None):
+        obs = Observation(
+            id=obs_id,
+            source=obs_id.split(".")[0],
+            category="test",
+            collector="test",
+            method="test",
+            value=value or {"status": status.value},
+            message=f"{obs_id} is {status.value}",
+            observed_at=datetime.now(timezone.utc),
+        )
+        return evaluate_observation(obs)
+
+    telemetry_catalog = load_catalog("catalogs/telemetry.yaml")
+    data_catalog = load_catalog("catalogs/data.yaml")
+    combined_catalog = telemetry_catalog + data_catalog
+    causal_rules = load_causal_catalog("causality/telemetry.yaml")
+
+    # Scenario A: Symptom present, but ALL physical probes are healthy
+    healthy_infra_evidence = [
+        make_ev("otel.metrics_reachable", EvidenceStatus.PASS),
+        make_ev("otel.http_error_rate", EvidenceStatus.FAIL, {"status": "FAIL"}),
+        make_ev("otel.p99_latency_ms", EvidenceStatus.PASS),
+        make_ev("otel.error_spans_count", EvidenceStatus.PASS),
+        make_ev("postgres.reachable", EvidenceStatus.PASS),
+        make_ev("postgres.accepting_connections", EvidenceStatus.PASS),
+        make_ev("postgres.pool_exhaustion", EvidenceStatus.PASS),  # Healthy!
+    ]
+    state_a = correlate_state(healthy_infra_evidence, combined_catalog)
+    causality_a = reconstruct_causality(healthy_infra_evidence, state_a, causal_rules)
+
+    # Engine must NOT invent or attribute postgres as root cause
+    assert causality_a.primary_root_cause != "POSTGRES_POOL_EXHAUSTED"
+    assert causality_a.status in (CausalityStatus.ROOT_CAUSE_UNKNOWN, CausalityStatus.ROOT_CAUSE_CONSTRAINED)
+
+    # Scenario B: Symptom present AND physical probe fails -> Deterministic identification
+    exhausted_infra_evidence = [
+        make_ev("otel.metrics_reachable", EvidenceStatus.PASS),
+        make_ev("otel.http_error_rate", EvidenceStatus.FAIL, {"status": "FAIL"}),
+        make_ev("otel.p99_latency_ms", EvidenceStatus.PASS),
+        make_ev("otel.error_spans_count", EvidenceStatus.PASS),
+        make_ev("postgres.reachable", EvidenceStatus.PASS),
+        make_ev("postgres.accepting_connections", EvidenceStatus.PASS),
+        make_ev("postgres.pool_exhaustion", EvidenceStatus.FAIL, {"status": "FAIL"}),  # Saturated!
+    ]
+    state_b = correlate_state(exhausted_infra_evidence, combined_catalog)
+    causality_b = reconstruct_causality(exhausted_infra_evidence, state_b, causal_rules)
+
+    assert causality_b.status == CausalityStatus.ROOT_CAUSE_IDENTIFIED
+    assert causality_b.primary_root_cause == "POSTGRES_POOL_EXHAUSTED"
+
