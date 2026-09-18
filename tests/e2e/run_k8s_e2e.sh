@@ -50,6 +50,8 @@ extract_decision() {
 echo "--- Healthy pod ---"
 OUT="$(run_diagnose healthy || true)"
 [ "$(printf '%s' "$OUT" | extract_decision status)" = ALLOW ] || {
+  echo "Healthy pod diagnostic output:"
+  printf '%s\n' "$OUT"
   echo "FAIL: healthy pod was not ALLOW"; exit 1;
 }
 printf '%s' "$OUT" | "$PYTHON_CMD" -c 'import json,sys; d=json.load(sys.stdin); assert "K8S_POD_HEALTHY" in d["decision"]["reason"]'
