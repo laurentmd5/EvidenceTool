@@ -10,6 +10,7 @@ allow:
 
 blocked_by:
   - CONTAINER_NOT_FOUND
+  - CONTAINER_HEALTHY
 
 required_evidence:
   - id: container.exists

@@ -1,12 +1,14 @@
 # Rapport d'Analyse — Typologie des Incidents de Production Diagnostiqués par EvidenceTool
 
-**Date d'analyse :** 26 août 2026  
-**Version examinée :** V0.9 / état du workspace  
-**Périmètre :** `src/evidencetool/`, `catalogs/`, `policies/`, `tests/`, `README.md` et `PRODUCT_CONTRACT.md`
+**Date d'analyse :** 18 septembre 2026
+**Version examinée :** 1.0.2 (`pyproject.toml`) / état du workspace
+**Périmètre :** code source, providers, modèles, décision, policies, catalogues, CLI, tests, schéma JSON, documentation et contrôles qualité disponibles dans le workspace.
 
 ## 1. Objet et conclusion exécutive
 
 EvidenceTool est un moteur de diagnostic opérationnel en lecture seule. Il collecte des observations auprès de providers, les transforme en preuves `PASS`, `FAIL` ou `UNKNOWN`, corrèle ces preuves avec des situations connues, puis applique une policy qui produit `ALLOW`, `BLOCK` ou `HUMAN_REVIEW`.
+
+**Verdict exécutif :** le logiciel est **prêt pour un usage de production contrôlé comme outil de diagnostic et de garde-fou**, sur les domaines et environnements effectivement validés. Il n'est **pas prêt pour une remédiation autonome non supervisée ni pour une promesse de couverture générale des incidents**. Avant une mise en service critique, il reste à lever les incohérences contractuelles et à renforcer les contrôles de release décrits en section 8.
 
 Le code décrit **64 situations cataloguées** dans huit catalogues YAML. Elles couvrent principalement :
 
@@ -19,6 +21,16 @@ Le code décrit **64 situations cataloguées** dans huit catalogues YAML. Elles 
 - les incidents de scheduling, image, mémoire, configuration et nœud Kubernetes.
 
 La couverture est plus forte pour le diagnostic déterministe de signaux isolés et de scénarios de corrélation connus que pour une analyse générale de cause racine. Une situation ne constitue un diagnostic que si toute sa signature correspond exactement aux statuts attendus. Toute preuve manquante ou `UNKNOWN` pertinente rend l'état ambigu et conduit normalement à un blocage en policy V2.
+
+Les contrôles exécutés pendant cette analyse donnent :
+
+- `pytest tests/ -q` : **223 tests réussis** ;
+- `ruff check src/ tests/` : **aucun problème** ;
+- `mypy src/` : **aucune erreur** ;
+- `bandit -r src/ -c pyproject.toml` : **aucun problème identifié** sur 5 871 lignes analysées ;
+- `pip-audit` : **aucune alerte retournée** dans l'environnement courant.
+
+Ces résultats attestent de la santé du workspace testé, mais ne remplacent pas les E2E sur les plateformes cibles ni les contrôles de déploiement et d'exploitation.
 
 ## 2. Méthode d'analyse et chaîne fonctionnelle
 
@@ -234,16 +246,49 @@ Les limites de couverture à garder en tête sont :
 - les situations non reliées à une policy n'ont pas de parcours décisionnel complet ;
 - la collecte distante, les capabilities refusées et les preuves `UNKNOWN` sont surtout des comportements de sûreté, pas des preuves de cause racine.
 
-## 7. Conclusion et recommandations
+## 7. Évaluation de la readiness production
+
+### 7.1 Points qui permettent un usage contrôlé
+
+- Le chemin critique est déterministe et fail-closed sur les preuves bloquantes et l'ambiguïté.
+- La décision est séparée de la recommandation, et l'intégrité de la décision est vérifiée à chaque diagnostic.
+- Les providers sont read-only dans le périmètre testé; la CLI valide notamment les hôtes SSH et les ports.
+- Les observations portent leur provenance, leurs timestamps et leurs données sensibles sont redigées lors de la sérialisation.
+- Les capabilities, le budget de sondes, la confiance des providers et le hash des plugins externes fournissent une base exploitable pour un harnais d'agent.
+- Le dépôt possède une couverture unitaire large et des scénarios d'intégration pour les domaines principaux.
+
+### 7.2 Conditions et bloqueurs avant usage critique ou autonome
+
+1. **Contrat documentaire incohérent :** `PRODUCT_CONTRACT.md` indique encore que Kubernetes n'est pas supporté, alors que le provider, le catalogue, la policy, le README et les tests le couvrent. Il faut choisir le périmètre officiel et aligner le contrat avant release.
+2. **Couverture décisionnelle incomplète :** plusieurs situations sont observables et cataloguées mais orphelines d'une policy (`DISK_PRESSURE`, `NETWORK_UNREACHABLE`, plusieurs saturations processus, `REDIS_REPLICATION_BROKEN`). Elles ne doivent pas être interprétées comme des autorisations ou des blocages métier sans policy explicite.
+3. **Validation du contrat JSON à industrialiser :** le schéma `schemas/diagnosis-result.schema.json` existe et la sérialisation CLI est structurée, mais une validation CI systématique de chaque sortie E2E contre ce schéma doit être garantie avant publication.
+4. **Dépendance à l'environnement :** la suite locale réussit sous Windows/Python 3.13, mais les providers Linux, systemd, Nginx, Docker, Kubernetes, SSH et les permissions TLS doivent être validés dans les environnements de production cibles.
+5. **Sécurité opérationnelle :** l'accès au socket Docker équivaut pratiquement à root sur l'hôte; les clés TLS et les identifiants de bases exigent ACL, secret management, isolation et rotation adaptés. Le moteur ne doit jamais être confondu avec un exécuteur de remédiation.
+6. **Résilience d'exploitation à prouver :** les SLO documentés, la surveillance des métriques, les timeouts, les limites de sondes, les logs et la gestion des sorties `UNKNOWN` doivent être testés en conditions de panne et intégrés à la procédure d'astreinte.
+
+### 7.3 Classement de readiness
+
+| Dimension | Évaluation | Commentaire |
+|---|---|---|
+| Fonctionnalité déterministe | **Prête sous périmètre** | 64 situations, 12 domaines de providers et 223 tests verts. |
+| Sécurité du chemin de décision | **Bonne base** | Fail-closed, intégrité, capabilities et séparation read-only. |
+| Couverture de diagnostic | **Partielle** | Les signatures connues sont solides, mais la cause racine hors catalogue n'est pas déduite. |
+| Contrat et gouvernance | **À corriger avant release critique** | Contradiction Kubernetes et couverture policy incomplète. |
+| Exploitation multi-environnements | **À valider sur cible** | Les tests locaux ne suffisent pas pour les dépendances Linux et les transports réels. |
+| Remédiation autonome | **Non prête / hors périmètre** | Une intégration doit conserver `BLOCK` et `HUMAN_REVIEW` tels quels et refaire un diagnostic frais. |
+
+## 8. Conclusion et recommandations
 
 EvidenceTool diagnostique efficacement une famille structurée d'incidents d'infrastructure et de dépendances grâce à des signatures explicites et auditables. Sa force est la prudence décisionnelle : il refuse d'autoriser une remédiation lorsque les conditions attendues ne sont pas démontrées. Sa limite principale est volontaire et architecturale : il ne déduit pas une cause racine nouvelle; il reconnaît des situations préalablement cataloguées.
 
 Recommandations prioritaires :
 
-1. Relier les situations actuellement orphelines à des policies explicites, ou documenter clairement qu'elles sont informatives uniquement.
-2. Ajouter une signature et une policy pour `REDIS_REPLICATION_BROKEN` si cet incident doit interdire une remédiation.
-3. Ajouter des scénarios de décision complets pour CPU, mémoire, descripteurs, `mysql.read_only`, latence et santé Kubernetes.
-4. Corriger ou clarifier la mention historique Kubernetes dans `PRODUCT_CONTRACT.md`.
-5. Maintenir une exécution des tests E2E sur Linux/Docker et une vérification distincte des chemins distants avant release.
+1. Corriger la contradiction Kubernetes dans `PRODUCT_CONTRACT.md`, puis figer une matrice officielle des plateformes et providers supportés.
+2. Relier les situations actuellement orphelines à des policies explicites, ou documenter clairement qu'elles sont informatives uniquement.
+3. Ajouter une signature et une policy pour `REDIS_REPLICATION_BROKEN` si cet incident doit interdire une remédiation.
+4. Ajouter des scénarios de décision complets pour CPU, mémoire, descripteurs, `mysql.read_only`, latence et santé Kubernetes.
+5. Ajouter en CI la validation de toutes les sorties JSON E2E contre `schemas/diagnosis-result.schema.json`.
+6. Maintenir les E2E Linux/Docker/Kubernetes/SSH et une vérification distincte des permissions, secrets, timeouts et chemins distants avant chaque release.
+7. Déployer d'abord en mode observation ou `HUMAN_REVIEW`, avec métriques et runbooks, puis n'autoriser une automatisation limitée qu'après validation du harnais appelant.
 
-**Avis :** EvidenceTool fournit une typologie production solide et traçable pour les domaines couverts; la couverture de diagnostic est plus large que la couverture d'autorisation. Toute lecture opérationnelle doit donc distinguer une situation cataloguée, une preuve observée et une décision effectivement supportée par la policy.
+**Avis final :** EvidenceTool fournit une typologie de production solide et traçable pour les domaines couverts, avec une chaîne de décision actuellement saine selon les contrôles exécutés. Il est **production-ready sous conditions et avec supervision**, mais pas “ready” au sens d'une plateforme universelle ou d'un agent autonome autorisé à agir sans revalidation. Toute lecture opérationnelle doit distinguer une situation cataloguée, une preuve observée et une décision effectivement supportée par la policy.

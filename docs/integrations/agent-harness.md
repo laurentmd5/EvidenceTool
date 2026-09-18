@@ -14,20 +14,58 @@ the resulting evidence. Capability denial or an unapproved provider is an integr
 External providers used by an automated harness should be listed in an external manifest and verified by SHA-256
 before activation. Do not treat discovery alone as approval.
 
-## 2. validate_decision_integrity
-Every JSON output produced by EvidenceTool includes a cryptographically stable representation of the decision.
-Agents MUST run `validate_decision_integrity(decision, policy, evidence)` programmatically on the output.
-
-If `is_valid` is false, the agent MUST abort the action immediately. This ensures that the agent cannot be tricked by malicious prompt injection into hallucinating a fake `ALLOW` decision.
+## 2. AgentSafetyGate Programmatic Integration (`evidencetool.agent`)
+Autonomous AI agents can integrate EvidenceTool directly through `AgentSafetyGate`:
 
 ```python
-from evidencetool.decision.integrity import validate_decision_integrity
+from evidencetool.agent import AgentSafetyGate, AgentDiagnosisRequest
 
-# If integrating programmatically in an agent's harness:
-integrity = validate_decision_integrity(result.decision, policy, result.evidence)
-if not integrity.is_valid:
-    raise SecurityViolation("Decision integrity compromised")
+gate = AgentSafetyGate(
+    capability_policy="capabilities/agent-restricted.yaml",
+    catalog="catalogs/distributed.yaml",
+    default_policy="policies/distributed.yaml",
+)
+
+request = AgentDiagnosisRequest(
+    agent_id="agent-007",
+    action="restart_application",
+    target="orders-service",
+    context={
+        "url": "http://127.0.0.1:8080/health",
+        "db_host": "127.0.0.1",
+        "redis_host": "127.0.0.1",
+    }
+)
+
+result = gate.evaluate(request)
+if result.is_allowed:
+    # Safely proceed with remediation
+    pass
+else:
+    # Gated: action blocked with explainable causal reason
+    print(f"Action BLOCKED: {result.reason}")
+    print(f"Causal Root Cause: {result.causality.primary_root_cause if result.causality else 'N/A'}")
 ```
 
-## 3. HUMAN_REVIEW
+## 3. Decision Integrity & JSON Contract Verification
+Every JSON output produced by EvidenceTool respects `schemas/diagnosis-result.schema.json` and includes a cryptographically stable representation of the decision.
+Agents MUST validate decision integrity programmatically before acting on an `ALLOW`:
+
+```python
+import json
+import jsonschema
+from evidencetool.decision.integrity import validate_decision_integrity
+
+# 1. Schema conformance validation
+with open("schemas/diagnosis-result.schema.json") as f:
+    schema = json.load(f)
+jsonschema.validate(instance=result_dict, schema=schema)
+
+# 2. Decision integrity validation
+integrity = validate_decision_integrity(result.decision, policy, result.evidence, state=result.incident.state)
+if not integrity.is_valid:
+    raise SecurityViolation(f"Decision integrity compromised: {integrity.violations}")
+```
+
+## 4. HUMAN_REVIEW
 If the engine returns `HUMAN_REVIEW`, the agent MUST pause execution and request explicit permission from a human operator. Treating `HUMAN_REVIEW` as a silent `ALLOW` violates the core safety invariants of the product contract.

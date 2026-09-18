@@ -1,4 +1,4 @@
-# EvidenceTool (V1.0 — Deterministic Causal Operational Reasoning Engine)
+# EvidenceTool (V1.0.2 — Deterministic Causal Operational Reasoning Engine)
 
 > EvidenceTool does not automate actions first. It makes operational decisions explainable first.
 
@@ -41,10 +41,10 @@ EvidenceTool is tested and verified on the following environments:
 | **Network** | `network` | `network.dns_resolvable`, `network.route_exists`, `network.host_reachable`, `network.port_reachable`, `network.tls_handshake`, `network.http_reachable` | Deterministic network evidence chain, TCP refused vs timeout |
 | **Process** | `process` | `process.exists`, `process.running`, `process.state`, `process.zombie`, `process.cpu_usage`, `process.memory_usage`, `process.open_files`, `process.thread_count` | Deep Linux kernel state inspection (R/S/D/Z states, CPU, RAM, FD limits) |
 | **PostgreSQL** | `postgres` | `postgres.reachable`, `postgres.accepting_connections`, `postgres.pool_exhaustion`, `postgres.is_in_recovery`, `postgres.latency_ms` | Availability, connection pool saturation, replica / read-only detection |
-| **MySQL** | `mysql` | `mysql.reachable`, `mysql.ping`, `mysql.max_connections`, `mysql.read_only`, `mysql.latency_ms` | Initial handshake packet parsing, Error 1040 max connections, read-only status |
-| **Redis** | `redis` | `redis.reachable`, `redis.ping`, `redis.auth`, `redis.memory_pressure`, `redis.role`, `redis.latency_ms` | Native RESP wire protocol, PING/PONG, memory saturation (OOM), replication link |
-| **Dependency** | `dependency` | `dependency.http_status`, `dependency.latency_ms`, `dependency.sla_budget`, `dependency.circuit_breaker` | Upstream API SLA latency budget, HTTP 503/429/504 circuit breaking |
-| **Kubernetes** | `k8s` / `kubernetes` | `k8s.pod_phase`, `k8s.containers_ready`, `k8s.container_crashloop`, `k8s.container_oom_killed`, `k8s.image_pull_status`, `k8s.config_secret_status`, `k8s.pod_scheduled`, `k8s.node_ready` | Read-only kubectl inspection with namespace confinement |
+| **MySQL** | `mysql` | `mysql.reachable`, `mysql.ping`, `mysql.max_connections`, `mysql.read_only`, `mysql.latency_ms` | Bounded handshake packet parsing, Error 1040 max connections, read-only status |
+| **Redis** | `redis` | `redis.reachable`, `redis.ping`, `redis.auth`, `redis.memory_pressure`, `redis.role`, `redis.latency_ms` | Bounded RESP wire protocol, PING/PONG, memory saturation (OOM), replication link |
+| **Dependency** | `dependency` | `dependency.http_status`, `dependency.latency_ms`, `dependency.sla_budget`, `dependency.circuit_breaker` | Upstream API SLA latency budget, HTTP 503/429/504 circuit breaking, curl max-time |
+| **Kubernetes** | `k8s` / `kubernetes` | `k8s.pod_phase`, `k8s.containers_ready`, `k8s.container_crashloop`, `k8s.container_oom_killed`, `k8s.image_pull_status`, `k8s.config_secret_status`, `k8s.pod_scheduled`, `k8s.node_ready` | Read-only kubectl inspection with namespace confinement & transport failure handling |
 
 ---
 
@@ -54,22 +54,25 @@ EvidenceTool is tested and verified on the following environments:
 Incident
    │
    ▼
-Dynamic Provider Registry (Auto-discovered plugins)
+Static Provider Trust Boundary (12 Builtins + Approved Plugins via SHA-256)
    │
    ▼
-Observation Collection   (Local OR Remote via Agentless SSH)
+Observation Collection   (Local OR Remote via Agentless SSH with ConnectTimeout)
    │
    ▼
 Evidence Evaluation      (PASS / FAIL / UNKNOWN, freshness applied, errors caught)
    │
    ▼
-State Correlation        (Maps evidence signatures to Situations & OperationalState)
+State Correlation        (Maps evidence signatures to Situations & Local SituationEvaluation)
+   │
+   ▼
+Causal Reasoning Engine  (DAG causality reconstruction, primary root cause, precluded hypotheses)
    │
    ▼
 Policy Evaluation        (V2 Situational: allowed situations & explicitly blocked_by)
    │
    ▼
-Decision Engine          (BLOCK > HUMAN_REVIEW > ALLOW, fail-closed on ambiguity)
+Decision Engine          (BLOCK > HUMAN_REVIEW > ALLOW, local uncertainty invariant)
    │
    ▼
 Integrity Validation     (validate_decision_integrity — invariant verification)

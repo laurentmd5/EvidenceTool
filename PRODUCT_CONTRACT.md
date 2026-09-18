@@ -1,7 +1,7 @@
 # EvidenceTool — PRODUCT_CONTRACT.md
 
-**Version:** 10.0 (V1.0 Deterministic Causal Operational Reasoning Engine)
-**Status:** Active specification for V1.0 Deterministic Causal Operational Reasoning Engine & Incident Model
+**Version:** 10.2 (V1.0.2 Deterministic Causal Operational Reasoning Engine & Incident Model)
+**Status:** Active specification for V1.0.2 Deterministic Causal Operational Reasoning Engine, Incident Model & Local Uncertainty Governance
 **Scope:** This document defines the minimal functional and architectural contract that the EvidenceTool codebase must respect.
 
 ---
@@ -313,11 +313,11 @@ EvidenceTool explicitly does **not**:
 - modify the system in any way;
 - automatically restart or remediate anything;
 - perform auto-remediation of any kind;
-- support Kubernetes yet;
+- mutate or modify Kubernetes cluster state (inspection is strictly read-only via scoped kubectl CLI);
 - use an LLM anywhere in the evidence, risk, or decision path;
 - expose a dashboard or web UI;
 - compute a single aggregate 0–100 evidence score;
-- perform probabilistic or autonomous root-cause analysis.
+- perform probabilistic, speculative, or hallucinated root-cause analysis (causal reasoning is deterministic and evidence-backed).
 
 ---
 
@@ -527,16 +527,20 @@ Every diagnosis result must expose causality and provenance as first-class citiz
 - **V0.6**: Dependency-aware diagnosis (PostgreSQL, MySQL, Redis, Upstream APIs, SLA budgets).
 - **V0.7**: Kubernetes diagnostic domain (Mode A kubectl CLI with namespace confinement).
 - **V0.8**: Distributed diagnosis & cross-domain multi-signal correlation.
-- **Future**: Autonomous AI-agent operational diagnosis and safety governance boundary.
+- **V0.9**: AI-Agent safety gateway, authority model & caller identity.
+- **V1.0**: Deterministic causal operational reasoning engine & unified OperationalIncident model.
+- **V1.0.1**: Enterprise security hardening (strict TLS, static provider registry, probe budget isolation).
+- **V1.0.2**: Decision correctness & network robustness (per-situation local uncertainty, bounded parsers, V2 fallbacks).
 
 ---
 
-## 19. Kubernetes Diagnostic Domain (V0.7 Contract)
+## 19. Kubernetes Diagnostic Domain (V0.7+ Contract)
 
 ### 19.1 Execution Scoping (Mode A `kubectl` CLI)
 1. **CLI-Based Subprocess Execution**: Construction of strict argument lists (`kubectl get ... -o json`) executed via `run_command` without a shell.
 2. **Zero Mutation Guarantee**: Read-only operations (`get`, `describe`, `cluster-info`). Zero mutation commands (`apply`, `delete`, `scale`, `exec`, `cordon`, `drain`).
 3. **Confinement by Namespace (`KubernetesCapability`)**: Strict namespace access whitelist (`allowed_namespaces`) with automated security denial on system namespaces (`kube-system`, `kube-public`, `kube-node-lease`).
+4. **Transport Failure Distinction (`DES-03`)**: Transport or authentication errors (such as `403 Forbidden`, unreachable API server, or connection timeouts) degrade gracefully to `UNKNOWN` with `transport_status='failed'`, reserving `FAIL` strictly for verified pod, container, or node defects. Absence of evidence is never treated as evidence of failure.
 
 ---
 
@@ -591,3 +595,16 @@ Operational reasoning culminates in a typed `OperationalIncident` uniting:
 - `causality`: Primary root cause, causal propagation chain, surface symptoms, and precluded hypotheses.
 - `decision`: Governance policy verdict (`BLOCK > HUMAN_REVIEW > ALLOW`).
 - `authority`: Caller identity, quotas, and capability session tracing.
+
+---
+
+## 23. Decision Correctness & Local Uncertainty Model (V1.0.2 Contract)
+
+### 23.1 Local Uncertainty Invariant
+Uncertainty must be local to the hypothesis it affects:
+- In `V2_SITUATIONAL` policies, ambiguity is tracked per-situation (`SituationEvaluation`).
+- An unresolved or `UNKNOWN` observation in an unrelated domain (e.g. `redis.reachable: UNKNOWN`) does not contaminate or block a clean, verified decision in the target domain (e.g. `restart_nginx` with `NGINX_SERVICE_DOWN` fully verified).
+- An allowed situation is blocked due to ambiguity if and only if *its own* signature evidence contains `UNKNOWN` values.
+
+### 23.2 Complete Fallback Invariant
+When a provider execution fails or is denied by capability policy, fallback `UNKNOWN` observations must be generated for all evidence items required by situation signatures in the active catalog, ensuring situational policies always receive explicit evidence rather than missing entries. Absence of evidence always resolves to `UNKNOWN`, never to an unverified assumption.

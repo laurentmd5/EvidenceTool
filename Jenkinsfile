@@ -102,6 +102,28 @@ pipeline {
                         '''
                     }
                 }
+
+                stage('JSON Contract Schema Validation') {
+                    steps {
+                        sh '''
+                            . /tmp/venv/bin/activate
+                            python -c "
+                            import jsonschema, json
+                            schema = json.load(open('schemas/diagnosis-result.schema.json'))
+                            jsonschema.Draft7Validator.check_schema(schema)
+                            print('Draft-07 schema definition is valid!')
+                            "
+                            python -c "
+                            import subprocess, json, jsonschema
+                            schema = json.load(open('schemas/diagnosis-result.schema.json'))
+                            res = subprocess.run(['evidencetool', 'diagnose', 'network', '--output', 'json'], capture_output=True, text=True)
+                            data = json.loads(res.stdout)
+                            jsonschema.validate(instance=data, schema=schema)
+                            print('Live CLI JSON output strictly complies with schema contract!')
+                            "
+                        '''
+                    }
+                }
             }
         }
 

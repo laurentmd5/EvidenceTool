@@ -17,6 +17,7 @@ import http.client
 import math
 import socket
 import ssl
+import sys
 import time
 from datetime import datetime, timezone
 from typing import Any
@@ -225,7 +226,11 @@ class NetworkProvider:
                 "network.host_reachable", method, target_host, "icmp_echo", host, str(exc)
             )
 
-        res = run_command(["ping", "-c", "1", "-W", str(timeout), target_host], timeout=timeout + 1, host=host)
+        if sys.platform == "win32" and not host:
+            ping_cmd = ["ping", "-n", "1", "-w", str(max(1, int(timeout * 1000))), target_host]
+        else:
+            ping_cmd = ["ping", "-c", "1", "-W", str(max(1, int(timeout))), target_host]
+        res = run_command(ping_cmd, timeout=timeout + 1, host=host)
         if not res.ran:
             if host:
                 return self._unknown_observation(

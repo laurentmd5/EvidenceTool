@@ -1,15 +1,16 @@
-# Rapport d'Analyse — Typologie des Incidents de Production Diagnostiqués par EvidenceTool (v0.8.0)
+# Rapport d'Analyse — Typologie des Incidents de Production Diagnostiqués par EvidenceTool (v1.0.2)
 
-**Date** : 25 Août 2026  
-**Version** : `v0.8.0` (Branche `dev`)  
+**Date** : 18 Septembre 2026  
+**Version** : `v1.0.2` (Branche `dev`)  
 **Périmètre** : 12 Providers Opérationnels (`nginx`, `tls`, `systemd`, `docker`, `filesystem`, `network`, `process`, `postgres`, `mysql`, `redis`, `dependency`, `k8s`)  
-**Catalogues** : 8 Catalogues de Situations (`nginx`, `docker`, `network`, `process`, `data`, `kubernetes`, `distributed`, `system`)
+**Catalogues** : 8 Catalogues de Situations (`nginx`, `docker`, `network`, `process`, `data`, `kubernetes`, `distributed`, `system`) + 2 Catalogues Causaux (`distributed`, `kubernetes`)  
+**Policies** : 8 Politiques Décisionnelles couvrant 100% des situations définies sans exception
 
 ---
 
 ## 1. Vue d'Ensemble & Positionnement
 
-EvidenceTool est un moteur de diagnostic factuel en lecture seule (*Read-Only Operational Evidence Engine*). Il ne prend pas d'initiative hasardeuse : **il collecte des preuves vérifiables sans effet de bord, corrèle les états du système, identifie la cause racine parmi un catalogue de situations et décide si une action corrective est sûre (`ALLOW`), interdite (`BLOCK`), ou requiert un arbitrage (`HUMAN_REVIEW`)**.
+EvidenceTool est un moteur de raisonnement opérationnel et de diagnostic factuel en lecture seule (*Read-Only Operational Reasoning Engine & Safety Gateway*). Il ne prend pas d'initiative hasardeuse : **il collecte des preuves vérifiables sans effet de bord, corrèle les états du système en situations traçables, reconstruit le graphe de causalité déterministe, isole la cause racine et décide si une action corrective est sûre (`ALLOW`), interdite (`BLOCK`), ou requiert un arbitrage (`HUMAN_REVIEW`)**.
 
 ```
 ┌────────────────────────────────────────────────────────┐
@@ -31,8 +32,12 @@ EvidenceTool est un moteur de diagnostic factuel en lecture seule (*Read-Only Op
             (12 Providers, Zero Mutation Guarantee)
                             │
                             ▼
-           [ CATALOGUES DE SITUATIONS V0.8 ]
-          (45+ Situations Formelles Corrélées)
+          [ ÉVALUATION DE SITUATION LOCALE V1.0.2 ]
+         (Incertitude locale : SituationEvaluation)
+                            │
+                            ▼
+           [ MOTEUR DE CAUSALITÉ DÉTERMINISTE ]
+          (Graphe DAG, Precluded Hypotheses, Tri-State)
                             │
                             ▼
               [ DÉCISION & EXPLICABILITÉ ]
@@ -84,6 +89,11 @@ EvidenceTool est un moteur de diagnostic factuel en lecture seule (*Read-Only Op
 | **ConfigMap ou Secret Manquant** | Erreur `CreateContainerConfigError`. | Probe `k8s.config_secret_status: FAIL`. | 🛑 **BLOCK** (`K8S_CONFIG_OR_SECRET_MISSING`) |
 | **Ressources Cluster Insuffisantes** | Pod bloqué en `Pending` / `Unschedulable`. | Probe `k8s.pod_scheduled: FAIL` (ex: `0/8 nodes available: Insufficient cpu`). | 🛑 **BLOCK** (`K8S_INSUFFICIENT_CLUSTER_RESOURCES`) |
 | **Nœud en Panne ou Sous Pression** | Nœud Kubernetes en `NotReady` ou `MemoryPressure`. | Probe `k8s.node_ready: FAIL`. | 🛑 **BLOCK** (`K8S_NODE_NOT_READY_OR_PRESSURE`) |
+
+> **Garanties et Invariants Kubernetes (`DES-02`, `DES-03`) :**
+> - **Confinement de Namespace** : Contrôle strict via `KubernetesCapability`. Interdiction absolue sur les namespaces système (`kube-system`, `kube-public`, `kube-node-lease`).
+> - **Distinction Erreur de Transport vs Défaut** : `403 Forbidden` ou timeout d'API `kubectl` dégradent en `UNKNOWN` (`transport_status="failed"`). L'absence de preuve n'est jamais assimilée à un pod en échec (`FAIL`).
+> - **Zero Mutation** : Commandes `kubectl get/describe` exécutées sous forme de listes d'arguments sans shell. Aucune action modificatrice autorisée.
 
 ---
 
