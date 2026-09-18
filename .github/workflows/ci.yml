@@ -33,6 +33,9 @@ jobs:
       - name: Security SAST Scan (Bandit)
         run: bandit -r src/ -c pyproject.toml
 
+      - name: Dependency Audit (pip-audit)
+        run: pip-audit
+
   test-matrix:
     name: Test Suite (Python ${{ matrix.python-version }})
     needs: quality-and-security
@@ -78,3 +81,100 @@ jobs:
           jsonschema.validate(instance=data, schema=schema)
           print('Live CLI JSON output strictly complies with diagnosis-result.schema.json!')
           "
+
+  e2e-linux-systemd:
+    name: E2E Linux, systemd & Nginx
+    needs: test-matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Ubuntu and Debian systemd E2E
+        run: bash tests/e2e/run.sh
+
+  e2e-docker:
+    name: E2E Docker provider
+    needs: test-matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install runtime package
+        run: pip install -e .
+
+      - name: Run Docker lifecycle E2E
+        run: bash tests/e2e/run_docker_e2e.sh
+
+  e2e-data:
+    name: E2E data and dependency providers
+    needs: test-matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install runtime package
+        run: pip install -e .
+
+      - name: Run data and dependency E2E
+        run: bash tests/e2e/run_data_e2e.sh
+
+  e2e-kubernetes:
+    name: E2E Kubernetes provider
+    needs: test-matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install runtime package
+        run: pip install -e .
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Set up Minikube
+        uses: medyagh/setup-minikube@latest
+
+      - name: Run Kubernetes Minikube E2E
+        run: bash tests/e2e/run_k8s_e2e.sh
+
+  e2e-ssh-transport:
+    name: E2E SSH transport contract
+    needs: test-matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install test dependencies
+        run: pip install -e ".[test]"
+
+      - name: Run SSH transport tests
+        run: pytest tests/test_ssh_transport.py -q
