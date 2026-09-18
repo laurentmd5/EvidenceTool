@@ -85,6 +85,7 @@ class NetworkCapability:
             "db_ping",
             "db_pool_check",
             "ssh_transport",
+            "otel_query",
         }
     )
     targets: tuple[str, ...] = ("*",)

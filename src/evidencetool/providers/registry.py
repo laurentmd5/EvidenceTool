@@ -53,6 +53,7 @@ BUILTIN_NAMESPACES = frozenset({
     "mysql",
     "network",
     "nginx",
+    "otel",
     "postgres",
     "process",
     "redis",
@@ -112,6 +113,7 @@ BUILTIN_MODULE_NAMES = (
     "mysql",
     "network",
     "nginx",
+    "otel",
     "postgres",
     "process",
     "redis",
@@ -122,7 +124,7 @@ BUILTIN_MODULE_NAMES = (
 
 def load_all_providers(include_experimental: bool = False) -> None:
     """
-    Statically imports the 12 verified built-in providers.
+    Statically imports the 13 verified built-in providers.
     External providers are never auto-discovered from the filesystem and must be
     explicitly approved via load_approved_plugins() before import.
     """

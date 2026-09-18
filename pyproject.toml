@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "evidencetool"
-version = "1.0.3"
+version = "1.0.4"
 description = "A read-only operational evidence and decision layer for diagnosing production incidents."
 requires-python = ">=3.10"
 dependencies = [

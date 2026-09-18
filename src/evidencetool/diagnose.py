@@ -231,10 +231,14 @@ def diagnose(  # noqa: C901
     t0 = time.time()
     if tracer:
         tracer.start_span("evidencetool.evaluation")
+    requirements_by_id = {req.id: req for req in policy.required_evidence}
     max_ages = {
         req.id: req.max_age for req in policy.required_evidence if req.max_age is not None
     }
-    evidence = [evaluate_observation(obs, max_age=max_ages.get(obs.id)) for obs in observations]
+    evidence = [
+        evaluate_observation(obs, max_age=max_ages.get(obs.id), requirement=requirements_by_id.get(obs.id))
+        for obs in observations
+    ]
     m.evaluation_duration = time.time() - t0
 
     for e in evidence:

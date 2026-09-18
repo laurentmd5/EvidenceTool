@@ -667,3 +667,40 @@ EvidenceTool produces distributed OpenTelemetry traces mapping its internal oper
 1. **Host-Managed Exporter**: When running inside an already instrumented host application, EvidenceTool spans route through the host's existing `TracerProvider` pipeline.
 2. **Official OTLP Exporter in Standalone Mode**: When executed standalone (CLI or isolated script with `--otel-endpoint`) and `opentelemetry-exporter-otlp-proto-http` is installed, EvidenceTool initializes an internal `TracerProvider` with `OTLPSpanExporter` transmitting standard binary Protobuf over HTTP (`application/x-protobuf`) without mutating the global host provider.
 3. **Pure-Python Zero-Dependency Fallback**: If the OpenTelemetry SDK/exporter packages are absent, EvidenceTool falls back to transmitting standard OTLP JSON (`application/json`) via pure Python standard library HTTP requests.
+
+---
+
+## 25. OpenTelemetry Mode A Inbound Telemetry Contract (V1.0.4 Contract)
+
+### 25.1 Telemetry Observation Invariant
+1. **External Observation Only**: Telemetry backends (Prometheus, Tempo, Jaeger, OTel Collector) are treated strictly as external observation sources (`Telemetry -> Evidence`).
+2. **Authority Decoupling**: Inbound telemetry brings additional evidence, but **MUST NEVER** confer or extend authority to any caller, model, or diagnostic entity. It does not alter capability budgets, bypass policies, or substitute cryptographic identity.
+3. **Backend Disambiguation**: EvidenceTool interacts with telemetry interfaces (Prometheus HTTP `/api/v1/query`, Tempo/Jaeger HTTP `/api/traces`), not proprietary or direct OpenTelemetry SDK internals.
+
+### 25.2 Deterministic Interpretation Invariant
+1. **Observation vs. Evaluation**: Telemetry providers are strictly limited to collecting and normalizing raw observed values (e.g. error rate `0.073`, latency `842.0ms`, error spans `17`). Providers **MUST NOT** evaluate diagnostic business thresholds or decide whether a value constitutes an incident.
+2. **Evaluation Layer Responsibility**: Verification of thresholds against service SLAs is exclusively executed by the `Evidence Evaluator` using policy declarations (`threshold`, `comparator`) and situational signatures.
+3. **Technical Status Exclusivity**: Direct technical status (`PASS` / `UNKNOWN`) in observations is strictly reserved for transport availability (`otel.metrics_reachable`, `otel.traces_reachable`).
+
+### 25.3 Telemetry Capability & SSRF Invariant
+1. **Pre-connect Authorization**: Every remote telemetry query MUST be pre-authorized via `NetworkCapability` under the `"otel_query"` operation, matching authorized target hosts and ports before any network socket is opened.
+2. **Strict No-Redirect Policy**: Telemetry HTTP clients **MUST NOT** follow HTTP 3xx redirects. Any redirect status code is treated as an unexpected redirect and rejected as `UNKNOWN` / `CapabilityDenied` to prevent SSRF bypass attacks (e.g. redirection to `169.254.169.254` or internal subnets).
+3. **Centralized Sanitization**: All credentials, tokens, and sensitive query parameters in URLs, logs, traces, and error messages MUST be systematically redacted as `[REDACTED]`.
+
+### 25.4 Telemetry Uncertainty Invariant
+1. **Separation of Availability and Health**: Monitoring backend unavailability (`TELEMETRY_METRICS_UNAVAILABLE`) MUST be strictly separated from service health situations (`SERVICE_ERROR_RATE_EXCEEDED`).
+2. **UNKNOWN is Not FAIL**: If a metrics or traces backend times out, is unreachable, or returns a transport failure, the affected observations evaluate to `UNKNOWN` (`transport_status="failed"`). Telemetry uncertainty **NEVER** implicitly converts to `FAIL`, preventing false positive alerts or misattributed service blame.
+
+### 25.5 Telemetry Resource-Bound Invariant
+1. **Multi-Dimensional Budget**: Telemetry collection is governed by a strict `TelemetryBudget`:
+   - `max_requests`: limits total HTTP queries per collection pass (default 5-10).
+   - `max_response_bytes`: bounds stream reading to 1MB.
+   - `connect_timeout` & `read_timeout`: bounded network socket timeouts.
+   - `max_query_length`: bounds query string length (default 1024 characters).
+   - `max_lookback_seconds`: bounds trace search time window.
+2. **Pre-Deserialization Stream Bounding**: Socket streams MUST be bounded during read (`read(limit + 1)`). If the payload exceeds the budget, the stream is aborted immediately before invoking JSON deserialization (`json.loads()`).
+
+### 25.6 Hybrid Causality Invariant (Mode C)
+1. **Surface Symptoms vs. Physical Root Causes**: Inbound telemetry signals (e.g. `otel.http_error_rate`, `otel.p99_latency_ms`) are modeled in the causal engine as surface symptoms (`is_surface_symptom: true`), not as physical root causes.
+2. **Deterministic Root-Cause Reconstruction**: When surface telemetry symptoms correlate with native physical probes (e.g. `postgres.pool_exhaustion: FAIL`, `redis.memory_pressure: FAIL`), the causal engine constructs a causal propagation chain attributing the root cause to the physical failure (`relation: PROPAGATES_TO`).
+3. **Hypothesis Preclusion**: Nominal telemetry (`SERVICE_TELEMETRY_NOMINAL`) formally refutes and precludes active outage hypotheses (`relation: PRECLUDES`), preventing unnecessary service restarts or destructive automated rollbacks.

@@ -1,0 +1,45 @@
+situations:
+  # Telemetry Backend Availability
+  TELEMETRY_METRICS_AVAILABLE:
+    description: "Prometheus/OTel metrics endpoint is reachable and responsive"
+    signature:
+      otel.metrics_reachable: PASS
+
+  TELEMETRY_METRICS_UNAVAILABLE:
+    description: "Prometheus/OTel metrics backend is down or connection timed out"
+    signature:
+      otel.metrics_reachable: FAIL
+
+  TELEMETRY_TRACES_AVAILABLE:
+    description: "Tempo/Jaeger traces endpoint is reachable and responsive"
+    signature:
+      otel.traces_reachable: PASS
+
+  TELEMETRY_TRACES_UNAVAILABLE:
+    description: "Tempo/Jaeger traces backend is down or connection timed out"
+    signature:
+      otel.traces_reachable: FAIL
+
+  # Application Service Telemetry
+  SERVICE_TELEMETRY_NOMINAL:
+    description: "Service telemetry is fully within SLA budget (error rate, latency, trace spans nominal)"
+    signature:
+      otel.metrics_reachable: PASS
+      otel.http_error_rate: PASS
+      otel.p99_latency_ms: PASS
+      otel.error_spans_count: PASS
+
+  SERVICE_ERROR_RATE_EXCEEDED:
+    description: "Service HTTP 5xx error rate exceeds acceptable SLA budget"
+    signature:
+      otel.http_error_rate: FAIL
+
+  SERVICE_P99_LATENCY_SPIKE:
+    description: "Service P99 latency exceeds acceptable response time budget"
+    signature:
+      otel.p99_latency_ms: FAIL
+
+  SERVICE_ERROR_SPANS_DETECTED:
+    description: "Active error spans detected in distributed traces within observation window"
+    signature:
+      otel.error_spans_count: FAIL

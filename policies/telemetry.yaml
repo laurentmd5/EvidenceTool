@@ -1,0 +1,31 @@
+version: "1.0"
+action: promote_canary
+risk: HIGH
+schema: "v2"
+
+allow:
+  - SERVICE_TELEMETRY_NOMINAL
+
+blocked_by:
+  - SERVICE_ERROR_RATE_EXCEEDED
+  - SERVICE_P99_LATENCY_SPIKE
+  - SERVICE_ERROR_SPANS_DETECTED
+  - TELEMETRY_METRICS_UNAVAILABLE
+
+required_evidence:
+  - id: otel.metrics_reachable
+    on_unknown: BLOCK
+  - id: otel.http_error_rate
+    threshold: 0.05
+    comparator: "<="
+    on_unknown: BLOCK
+  - id: otel.p99_latency_ms
+    threshold: 1000.0
+    comparator: "<="
+    on_unknown: BLOCK
+  - id: otel.error_spans_count
+    threshold: 0
+    comparator: "<="
+    on_unknown: BLOCK
+
+human_approval: false

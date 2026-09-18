@@ -36,6 +36,8 @@ class EvidenceRequirement:
     id: str
     on_unknown: OnUnknown = DEFAULT_ON_UNKNOWN
     max_age: float | None = None  # seconds; None = no freshness constraint
+    threshold: float | None = None  # optional numerical threshold for metric evaluation
+    comparator: str = "<="  # comparison operator ('<=', '<', '>=', '>', '==')
 
 
 class PolicySchema(str, Enum):

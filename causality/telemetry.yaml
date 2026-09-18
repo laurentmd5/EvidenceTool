@@ -1,0 +1,38 @@
+# EvidenceTool Declarative Causality Catalog — Telemetry & Mode C Hybrid Reasoning
+# Format: Version 1.0
+
+causal_rules:
+  # 1. Native PostgreSQL Pool Exhaustion -> Inbound OTel Surface Error Rate Exceeded
+  - id: POSTGRES_POOL_TO_OTEL_ERROR_RATE
+    source: POSTGRES_POOL_EXHAUSTED
+    target: SERVICE_ERROR_RATE_EXCEEDED
+    relation: PROPAGATES_TO
+    conditions:
+      postgres.pool_exhaustion: FAIL
+      otel.http_error_rate: FAIL
+    description: "Database connection pool exhaustion propagates to application HTTP 5xx errors in OTel metrics"
+    is_root_cause_candidate: true
+    is_surface_symptom: false
+
+  # 2. Native Redis Memory Exhaustion -> Inbound OTel Surface P99 Latency Spike
+  - id: REDIS_OOM_TO_OTEL_LATENCY_SPIKE
+    source: REDIS_OOM_MAXMEMORY
+    target: SERVICE_P99_LATENCY_SPIKE
+    relation: PROPAGATES_TO
+    conditions:
+      redis.memory_pressure: FAIL
+      otel.p99_latency_ms: FAIL
+    description: "Redis memory saturation triggers cache evictions and database query latency spikes in OTel"
+    is_root_cause_candidate: true
+    is_surface_symptom: false
+
+  # 3. Healthy Telemetry Precludes Active Service Outage Hypotheses
+  - id: TELEMETRY_NOMINAL_PRECLUDES_OUTAGE
+    source: SERVICE_TELEMETRY_NOMINAL
+    target: SERVICE_ERROR_RATE_EXCEEDED
+    relation: PRECLUDES
+    conditions:
+      otel.http_error_rate: PASS
+    description: "Observed nominal error rate and healthy telemetry formally refutes active outage hypotheses"
+    is_root_cause_candidate: false
+    is_surface_symptom: false

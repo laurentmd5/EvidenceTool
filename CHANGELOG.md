@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.4] - 2026-09-18
+### OpenTelemetry Mode A Inbound Telemetry & Mode C Hybrid Correlation
+- **Inbound Telemetry Provider (`otel`)**:
+  - Implemented `OTelProvider` (`@provider("otel", trust=ProviderTrust.BUILTIN)`), enabling non-intrusive ingestion of application metrics and distributed trace error counts from Prometheus and Tempo/Jaeger backends.
+  - Built-in provider count increased from 12 to 13 modules, protected against runtime tampering or authority extension.
+- **Provider Responsibility Separation & Pipeline Alignment**:
+  - Provider is strictly limited to observation and normalization of raw values (e.g. error rate `0.073`, latency `842.0ms`, error spans `17`).
+  - Business SLA threshold evaluation (`PASS` / `FAIL`) is executed deterministically by the `Evidence Evaluator` according to `EvidenceRequirement(threshold, comparator)` declared in the policy.
+  - Trace error searches include explicit time-window metadata (`lookback="5m"`).
+- **Centralized `TelemetryHTTPClient` & SSRF Protection**:
+  - Strict No-Redirect Policy: HTTP 3xx responses are immediately rejected (`RedirectDenied` / `UNKNOWN`) to prevent SSRF rebound attacks.
+  - Pre-connect validation via `NetworkCapability` (`operation="otel_query"`), with automated blocking of cloud metadata endpoints (`169.254.169.254`).
+  - Multi-dimensional `TelemetryBudget`: request limits (5 max), bounded stream reading (1MB ceiling) before JSON deserialization, and query length limits.
+  - Centralized credential and token redaction across URLs, headers, logs, traces, and error messages (`[REDACTED]`).
+- **Separation of Telemetry Availability from Service Health (Local Uncertainty)**:
+  - Technical reachability (`otel.metrics_reachable`, `otel.traces_reachable`) evaluates transport availability (`PASS` / `UNKNOWN`).
+  - Monitoring backend failure maps to `TELEMETRY_METRICS_UNAVAILABLE` without producing false positive service errors (`UNKNOWN ≠ FAIL`).
+- **Mode C Hybrid Causal Correlation**:
+  - Declarative catalogs `catalogs/telemetry.yaml` and `causality/telemetry.yaml` linking high-level surface telemetry symptoms to native physical root causes (e.g. PostgreSQL connection pool exhaustion or Redis memory pressure).
+  - Nominal telemetry (`SERVICE_TELEMETRY_NOMINAL`) formally refutes and precludes active outage hypotheses.
+- **Product Contract Formalization**:
+  - Added Section 25 to `PRODUCT_CONTRACT.md` detailing the 6 core invariants.
+- **Test Suite Expansion**:
+  - Added 14 new tests (`tests/test_otel_provider.py`, `tests/test_diagnose_telemetry.py`), bringing the test suite to 266 tests passing 100%.
+
 ## [1.0.3] - 2026-09-18
 ### OpenTelemetry Mode B Outbound Tracing (Production-Ready)
 - **Host TracerProvider Non-Interference (`Étape 1`)**:
