@@ -201,15 +201,23 @@ EvidenceTool emits structured, distributed OpenTelemetry traces mapping its enti
 evidencetool diagnose nginx \
   --otel-endpoint http://localhost:4318/v1/traces
 
-# 2. Export trace to a local JSON file for auditing or offline analysis:
+# 2. Correlate with upstream distributed trace (W3C traceparent):
+evidencetool diagnose nginx \
+  --traceparent 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01 \
+  --otel-endpoint http://localhost:4318/v1/traces
+
+# 3. Export trace to a local JSON file for auditing or offline analysis:
 evidencetool diagnose nginx \
   --otel-trace-file /var/log/evidencetool/traces/diagnosis-01.json
 
-# 3. Transparent activation via standard environment variables:
+# 4. Transparent activation via standard environment variables:
 export OTEL_EXPORTER_OTLP_ENDPOINT="http://tempo.monitoring:4318"
 export OTEL_SERVICE_NAME="evidencetool-prod"
+export TRACEPARENT="00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
 evidencetool diagnose nginx
 ```
+
+See [docs/observability/opentelemetry.md](docs/observability/opentelemetry.md) for the complete integration guide, architectural invariants, and Docker Compose Jaeger recipe.
 
 Zero hard-dependency overhead: operates with pure standard library Python or can be paired with optional official SDK bindings (`pip install "evidencetool[otel]"`).
 

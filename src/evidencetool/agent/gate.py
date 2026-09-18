@@ -139,6 +139,7 @@ class AgentSafetyGate:
             execution=exec_ctx,
             causality_catalog=self._causality_catalog,
             tracer=tracer,
+            traceparent=request.traceparent,
         )
 
         # Extract root cause and supporting evidence

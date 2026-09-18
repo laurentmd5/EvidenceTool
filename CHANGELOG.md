@@ -3,15 +3,21 @@
 All notable changes to this project will be documented in this file.
 
 ## [1.0.3] - 2026-09-18
-### OpenTelemetry Mode B Outbound Tracing
-- **Native Distributed Tracing (`Mode B`)**: Emits structured OpenTelemetry traces mapping EvidenceTool's entire operational reasoning pipeline:
-  - Root span: `evidencetool.diagnosis`
-  - Child spans: `evidencetool.provider.<namespace>`, `evidencetool.evaluation`, `evidencetool.correlation`, `evidencetool.causality`, `evidencetool.decision`.
-- **Zero Hard-Dependency Design**: Pure Python `DiagnosisTracer` generating W3C-compliant trace IDs, span IDs, and OTLP ResourceSpans JSON without mandatory external dependencies. Optional dependency group `[project.optional-dependencies] otel = [...]` declared.
-- **OTLP/HTTP & Local File Export**: Added `--otel-endpoint` and `--otel-trace-file` CLI options, plus automatic activation via standard `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_ENABLE_TRACING` environment variables.
-- **AI-Agent Gateway Trace Correlation**: `AgentSafetyGate.evaluate()` accepts a `tracer`, enriches root spans with caller authority metadata (`caller_id`, `caller_type`, `session_id`), and exposes `result.trace_id`.
-- **JSON Output Contract**: Updated `schemas/diagnosis-result.schema.json` and CLI JSON renderer with `trace_id`.
-- **Comprehensive Test Suite**: Added `tests/test_otel_tracing.py` with 8 test cases covering span lifecycles, OTLP serialization, OTLP HTTP/file exports, fault tolerance, and agent gate integration (239 tests passing 100%).
+### OpenTelemetry Mode B Outbound Tracing (Production-Ready)
+- **Host TracerProvider Non-Interference (`Étape 1`)**:
+  - Leverages host application's OpenTelemetry runtime via `trace.get_tracer("evidencetool", "1.0.3")` without mutating, reinitializing, or replacing global `TracerProvider`.
+  - Zero hard-dependency fallback: collects in-memory spans and exports standard OTLP/JSON via pure standard library Python when OpenTelemetry SDK is absent.
+  - Added `opentelemetry-exporter-otlp-proto-http>=1.20.0` to `[project.optional-dependencies] otel`.
+- **W3C Distributed Context Propagation (`Étape 2`)**:
+  - Implemented 4-tier precedence hierarchy: Tier 1 (explicit arg) > Tier 2 (`TRACEPARENT` env var) > Tier 3 (host active span) > Tier 4 (new independent root trace).
+  - Added strict W3C `traceparent` RFC 00 parser with fail-safe fallback: invalid traceparents never raise exceptions and fall back to the active host span if present.
+  - Exposed `traceparent` parameter in `AgentDiagnosisRequest`, `AgentSafetyGate.evaluate()`, `diagnose()`, and CLI option `--traceparent`.
+  - Enforced *Trace Context Non-Authentication Invariant* (Section 24.5): traceparent correlation never grants authority or bypasses capability/probe budgets.
+- **OTLP Interoperability & Live Collector Verification (`Étape 3`)**:
+  - Live mock HTTP OTLP collector test suite validating wire transmission (`POST /v1/traces`), JSON `ResourceSpans`, parent-child correlation, and 200/202 status handling.
+  - Collector error resilience verification ensuring HTTP 500 / network failures never disrupt diagnostic decisions.
+  - Comprehensive integration documentation in `docs/observability/opentelemetry.md` with Docker Compose Jaeger/OTel Collector recipes.
+  - 19 dedicated tracing tests passing 100% (250 total tests in test suite).
 
 ## [1.0.2] - 2026-09-18
 ### Decision Correctness & Network Robustness Hardening

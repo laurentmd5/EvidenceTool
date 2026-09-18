@@ -642,3 +642,16 @@ EvidenceTool produces distributed OpenTelemetry traces mapping its internal oper
 1. **Zero Hard-Dependency**: Core EvidenceTool operates with pure standard library Python. It does not require `opentelemetry` to be installed to generate W3C trace IDs, record spans, or export OTLP/JSON.
 2. **OTLP/HTTP & File Export**: Traces can be exported directly via OTLP/HTTP JSON to OpenTelemetry Collectors (Jaeger, Tempo, Datadog) or saved locally as JSON files.
 3. **Resilient Export**: Network or exporter failures when transmitting traces never abort or corrupt the primary diagnostic evaluation. Export errors are caught and logged without side effects.
+
+### 24.4 Core Architectural Invariants
+1. **Observability Independence Invariant**: OpenTelemetry is strictly an observability integration layer. It **MUST NOT** influence EvidenceTool's deterministic diagnostic, causal, policy, or authority decisions. Spans describe operational reasoning; they never alter or determine it.
+2. **Host TracerProvider Non-Interference Invariant**: When running inside an already instrumented host application (e.g. AI agent mesh, LangChain, web service), EvidenceTool **MUST** use the host application's OpenTelemetry context via `trace.get_tracer("evidencetool", ...)` and **MUST NOT** replace, mutate, or re-initialize the host application's global `TracerProvider`. The host's span processors and active parent contexts remain completely untouched.
+
+### 24.5 Trace Context Non-Authentication Invariant
+1. **Correlation Only**: A W3C `traceparent` (passed via `AgentDiagnosisRequest.traceparent`, CLI `--traceparent`, or `TRACEPARENT` environment variable) is strictly a telemetry correlation identifier. It carries zero authentication, authorization, or capability semantics.
+2. **Authority Decoupling**: Receipt of a valid or invalid `traceparent` from an AI agent or upstream caller **MUST NEVER**:
+   - Bypass, loosen, or modify the caller's `CapabilitySet`.
+   - Substitute or spoof the caller's cryptographic `policy_fingerprint`.
+   - Reset, extend, or bypass the per-session `ProbeTracker` budget.
+   - Authorize any provider or transport not explicitly allowed by the active capability policy.
+3. **Fail-Safe Robustness**: Malformed or unparseable `traceparent` headers are handled strictly fail-safe: they log a warning and fall back to the active host OpenTelemetry span context (if present) or generate a new independent root trace ID. Malformed trace context **NEVER** raises an unhandled exception or aborts diagnostic evaluation.

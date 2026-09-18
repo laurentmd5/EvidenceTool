@@ -22,6 +22,7 @@ class AgentDiagnosisRequest:
     session_id: str | None = None
     policy_path: str | None = None
     caller_type: CallerType = CallerType.AI_AGENT
+    traceparent: str | None = None
 
 
 @dataclass(frozen=True)

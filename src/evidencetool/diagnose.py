@@ -52,6 +52,7 @@ def diagnose(  # noqa: C901
     execution: ExecutionContext | None = None,
     causality_catalog: list[CausalRule] | None = None,
     tracer: DiagnosisTracer | None = None,
+    traceparent: str | None = None,
 ) -> DiagnosisResult:
     from evidencetool.providers.base import ProviderContext
     from evidencetool.providers.registry import get_provider, get_provider_trust, load_all_providers
@@ -62,8 +63,16 @@ def diagnose(  # noqa: C901
     if tracer is None:
         import os
 
-        if os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT") or os.getenv("OTEL_ENABLE_TRACING", "").lower() in ("1", "true"):
-            tracer = DiagnosisTracer()
+        from evidencetool.observability.tracing import has_active_trace_context
+
+        if (
+            traceparent
+            or os.getenv("TRACEPARENT")
+            or has_active_trace_context()
+            or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+            or os.getenv("OTEL_ENABLE_TRACING", "").lower() in ("1", "true")
+        ):
+            tracer = DiagnosisTracer(traceparent=traceparent)
 
     if tracer:
         tracer.start_root_span(target=target, policy_action=policy.action)

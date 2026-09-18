@@ -72,6 +72,7 @@ def cli() -> None:
 @click.option("--metrics-file", default=None, help="Path to write Prometheus textfile metrics (e.g. ./evidencetool.prom)")
 @click.option("--otel-endpoint", default=None, help="OpenTelemetry OTLP/HTTP collector endpoint (e.g. http://localhost:4318/v1/traces)")
 @click.option("--otel-trace-file", default=None, help="Path to write diagnostic OpenTelemetry trace JSON (e.g. trace.json)")
+@click.option("--traceparent", default=None, help="W3C Traceparent string (e.g. 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01)")
 def diagnose_cmd(  # noqa: C901
     target: str,
     output: str,
@@ -85,6 +86,7 @@ def diagnose_cmd(  # noqa: C901
     catalog: str | None,
     otel_endpoint: str | None = None,
     otel_trace_file: str | None = None,
+    traceparent: str | None = None,
 ) -> None:
     """Diagnose an incident for TARGET."""
     if not policy_path:
@@ -161,12 +163,20 @@ def diagnose_cmd(  # noqa: C901
 
     tracer = None
     import os
-    if otel_endpoint or otel_trace_file or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT") or os.getenv("OTEL_ENABLE_TRACING", "").lower() in ("1", "true"):
+    if (
+        traceparent
+        or otel_endpoint
+        or otel_trace_file
+        or os.getenv("TRACEPARENT")
+        or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+        or os.getenv("OTEL_ENABLE_TRACING", "").lower() in ("1", "true")
+    ):
         from evidencetool.observability.tracing import DiagnosisTracer
 
         tracer = DiagnosisTracer(
             endpoint=otel_endpoint,
             trace_file=otel_trace_file,
+            traceparent=traceparent,
         )
 
     result = diagnose(
@@ -176,6 +186,7 @@ def diagnose_cmd(  # noqa: C901
         catalog=catalog_situations,
         execution=execution,
         tracer=tracer,
+        traceparent=traceparent,
     )
 
     if metrics_file:
