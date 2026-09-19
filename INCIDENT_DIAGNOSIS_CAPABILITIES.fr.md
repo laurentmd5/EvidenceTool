@@ -1,9 +1,9 @@
 [English](INCIDENT_DIAGNOSIS_CAPABILITIES.md) | **Français**
 
-# Rapport d'Analyse — Typologie des Incidents de Production Diagnostiqués par EvidenceTool (v1.0.5)
+# Rapport d'Analyse — Typologie des Incidents de Production Diagnostiqués par EvidenceTool (v1.0.6)
 
-**Date** : 18 Septembre 2026  
-**Version** : `v1.0.5` (Branche `dev`)  
+**Date** : 19 Septembre 2026  
+**Version** : `v1.0.6` (Branche `dev`)  
 **Périmètre** : 13 Providers Opérationnels (`nginx`, `tls`, `systemd`, `docker`, `filesystem`, `network`, `process`, `postgres`, `mysql`, `redis`, `dependency`, `k8s`, `otel`)  
 **Catalogues** : 9 Catalogues de Situations (`nginx`, `docker`, `network`, `process`, `data`, `kubernetes`, `distributed`, `system`, `telemetry`) + 3 Catalogues Causaux (`distributed`, `kubernetes`, `telemetry`)  
 **Policies** : Politiques Décisionnelles couvrant 100% des situations définies sans exception
@@ -12,7 +12,7 @@
 
 ## 1. Vue d'Ensemble & Positionnement
 
-EvidenceTool est un moteur de raisonnement opérationnel et de diagnostic factuel en lecture seule (*Read-Only Operational Reasoning Engine & Safety Gateway*). Il ne prend pas d'initiative hasardeuse : **il collecte des preuves vérifiables sans effet de bord, corrèle les états du système en situations traçables, reconstruit le graphe de causalité déterministe, isole la cause racine et décide si une action corrective est sûre (`ALLOW`), interdite (`BLOCK`), ou requiert un arbitrage (`HUMAN_REVIEW`)**.
+EvidenceTool est un moteur de raisonnement opérationnel et de diagnostic factuel en lecture seule (*Read-Only Operational Reasoning Engine & Safety Gateway*). Il ne prend pas d'initiative hasardeuse : **il collecte des preuves vérifiables sans effet de bord, corrèle les états du système en situations traçables, reconstruit le graphe de causalité déterministe, détecte les cycles préalablement à l'arbitrage, isole la cause racine et décide si une action corrective est sûre (`ALLOW`), interdite (`BLOCK`), ou requiert un arbitrage (`HUMAN_REVIEW`)**.
 
 ```
 ┌────────────────────────────────────────────────────────┐
@@ -35,12 +35,12 @@ EvidenceTool est un moteur de raisonnement opérationnel et de diagnostic factue
             (13 Providers, Zero Mutation Guarantee)
                             │
                             ▼
-          [ ÉVALUATION DE SITUATION LOCALE V1.0.5 ]
+          [ ÉVALUATION DE SITUATION LOCALE V1.0.6 ]
          (Incertitude locale : SituationEvaluation)
                             │
                             ▼
            [ MOTEUR DE CAUSALITÉ DÉTERMINISTE ]
-          (Graphe DAG, Precluded Hypotheses, Tri-State)
+       (Graphe DAG, Precluded Hypotheses, Détection de Cycles, Tri-State)
                             │
                             ▼
               [ DÉCISION & EXPLICABILITÉ ]

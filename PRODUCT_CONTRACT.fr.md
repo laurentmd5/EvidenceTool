@@ -2,8 +2,8 @@
 
 # EvidenceTool — PRODUCT_CONTRACT.md (Contrat Produit & Invariants Architecturaux)
 
-**Version :** 10.5 (Moteur Déterministe de Raisonnement Causal Opérationnel & Modèle d'Incident V1.0.5)  
-**Statut :** Spécification active pour la boucle fermée de confiance (Modes A, B, C) & la gouvernance d'incertitude locale  
+**Version :** 10.6 (Moteur Déterministe de Raisonnement Causal Opérationnel & Modèle d'Incident V1.0.6)  
+**Statut :** Spécification active pour la Confiance Opérationnelle en Boucle Fermée V1.0.6 (Modes A, B, C) & Gouvernance de l'Incertitude Locale  
 **Périmètre :** Ce document définit le contrat fonctionnel et architectural minimal et intangible que la base de code EvidenceTool doit respecter.
 
 ---

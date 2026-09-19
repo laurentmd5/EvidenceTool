@@ -1,9 +1,9 @@
 **English** | [Français](INCIDENT_DIAGNOSIS_CAPABILITIES.fr.md)
 
-# Analysis Report — Typology of Production Incidents Diagnosed by EvidenceTool (v1.0.5)
+# Analysis Report — Typology of Production Incidents Diagnosed by EvidenceTool (v1.0.6)
 
-**Date**: September 18, 2026  
-**Version**: `v1.0.5` (Branch `dev`)  
+**Date**: September 19, 2026  
+**Version**: `v1.0.6` (Branch `dev`)  
 **Scope**: 13 Operational Providers (`nginx`, `tls`, `systemd`, `docker`, `filesystem`, `network`, `process`, `postgres`, `mysql`, `redis`, `dependency`, `k8s`, `otel`)  
 **Catalogs**: 9 Situation Catalogs (`nginx`, `docker`, `network`, `process`, `data`, `kubernetes`, `distributed`, `system`, `telemetry`) + 3 Causal Catalogs (`distributed`, `kubernetes`, `telemetry`)  
 **Policies**: Decision Policies covering 100% of defined situations without exception
@@ -12,7 +12,7 @@
 
 ## 1. Overview & Architectural Positioning
 
-EvidenceTool is a read-only, policy-aware operational reasoning engine and safety gateway (*Read-Only Operational Reasoning Engine & Safety Gateway*). It never takes speculative initiatives: **it collects verifiable evidence without side effects, correlates system states into traceable situations, reconstructs deterministic causal DAGs, isolates primary root causes, and decides whether a proposed remediation action is safe (`ALLOW`), prohibited (`BLOCK`), or requires human intervention (`HUMAN_REVIEW`)**.
+EvidenceTool is a read-only, policy-aware operational reasoning engine and safety gateway (*Read-Only Operational Reasoning Engine & Safety Gateway*). It never takes speculative initiatives: **it collects verifiable evidence without side effects, correlates system states into traceable situations, reconstructs deterministic causal DAGs, detects cycles prior to arbitration, isolates primary root causes, and decides whether a proposed remediation action is safe (`ALLOW`), prohibited (`BLOCK`), or requires human intervention (`HUMAN_REVIEW`)**.
 
 ```
 ┌────────────────────────────────────────────────────────┐
@@ -35,12 +35,12 @@ EvidenceTool is a read-only, policy-aware operational reasoning engine and safet
             (13 Providers, Zero Mutation Guarantee)
                             │
                             ▼
-          [ V1.0.5 LOCAL SITUATION EVALUATION ]
+          [ V1.0.6 LOCAL SITUATION EVALUATION ]
          (Local uncertainty: SituationEvaluation)
                             │
                             ▼
            [ DETERMINISTIC CAUSAL ENGINE ]
-          (DAG Graph, Precluded Hypotheses, Tri-State)
+       (DAG Graph, Precluded Hypotheses, Cycle Detection, Tri-State)
                             │
                             ▼
               [ DECISION & EXPLAINABILITY ]

@@ -2,8 +2,8 @@
 
 # EvidenceTool — PRODUCT_CONTRACT.md
 
-**Version:** 10.5 (V1.0.5 Deterministic Causal Operational Reasoning Engine & Incident Model)
-**Status:** Active specification for V1.0.5 Closed-Loop Operational Trust (Modes A, B, C) & Local Uncertainty Governance
+**Version:** 10.6 (V1.0.6 Deterministic Causal Operational Reasoning Engine & Incident Model)
+**Status:** Active specification for V1.0.6 Closed-Loop Operational Trust (Modes A, B, C) & Local Uncertainty Governance
 **Scope:** This document defines the minimal functional and architectural contract that the EvidenceTool codebase must respect.
 
 ---

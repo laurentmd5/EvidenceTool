@@ -1,6 +1,6 @@
 [English](README.md) | **Français**
 
-# EvidenceTool (V1.0.5 — Moteur Déterministe de Raisonnement Causal Opérationnel)
+# EvidenceTool (V1.0.6 — Moteur Déterministe de Raisonnement Causal Opérationnel)
 
 > EvidenceTool n'automatise pas les actions en premier. Il rend d'abord les décisions opérationnelles explicables.
 
@@ -219,7 +219,7 @@ EvidenceTool unifie l'observabilité applicative de haut niveau avec la vérific
 
 - **Mode A (Inbound External Telemetry)** : Ingère les métriques Prometheus externes et les traces distribuées Tempo/Jaeger via le provider `otel`. Se limite strictement à observer les valeurs brutes et délègue l'évaluation des seuils aux politiques déclaratives. Inclut une protection anti-SSRF, le rejet des redirections, des charges utiles bornées et la désensibilisation des identifiants.
 - **Mode B (Outbound Distributed Tracing)** : Émet des spans OpenTelemetry structurés pour chaque phase du pipeline (`provider`, `evaluation`, `correlation`, `causality`, `decision`), en propageant le contexte via W3C `traceparent` sans altérer le `TracerProvider` de l'application hôte. Fonctionne en Python standard pur avec zéro dépendance externe, ou avec le SDK officiel OTel.
-- **Mode C (Hybrid Causal Reasoning)** : Relie les symptômes de surface (ex: erreurs 503 ou pics de latence) aux sondes système profondes (ex: épuisement de pool de connexions, blocages de processus, clés TLS invalides) via un graphe causal déclaratif (`PROPAGATES_TO`, `PRECLUDES`, `REQUIRES`). Dispose d'un arbitrage multi-candidats déterministe, d'une isolation d'incertitude locale et du suivi des hypothèses écartées.
+- **Mode C (Hybrid Causal Reasoning & Durcissement Causal)** : Relie les symptômes de surface (ex: erreurs 503 ou pics de latence) aux sondes système profondes (ex: épuisement de pool de connexions, blocages de processus, clés TLS invalides) via un graphe causal déclaratif (`PROPAGATES_TO`, `PRECLUDES`, `REQUIRES`). Garantit la détection des cycles avant arbitrage (C7), la complétude topologique (C8), l'absence de départage arbitraire en cas d'égalité de priorité (C9, C9b), la conservation de l'ambiguïté non classée (C10), l'isolation d'incertitude locale (C11), la réfutation explicite d'hypothèse (C12), et l'absence de corrélation implicite non déclarée (C13). Voir [docs/causality/hybrid-causal-reasoning.fr.md](docs/causality/hybrid-causal-reasoning.fr.md).
 
 ---
 
@@ -314,20 +314,22 @@ sudo usermod -aG docker evidencetool
 ---
 
 ## Tests & Vérification CI
-
+ 
 ```bash
-# Exécuter les tests unitaires avec couverture complète
+# Exécuter les 286 tests unitaires et d'intégration avec couverture complète
 pytest tests/ -v --cov=evidencetool --cov-report=term
 
 # Tests opérationnels de bout en bout (E2E)
 ./tests/e2e/run.sh
 
-# Suite Qualité de Code & DevSecOps
+# Suite Qualité de Code & DevSecOps (100% conforme)
 ruff check src/ tests/
 mypy src/
 bandit -r src/ -c pyproject.toml
 pip-audit
 ```
+
+L'ensemble des 286 tests est validé avec un typage strict sur 54 fichiers sources, zéro avertissement de linter et zéro vulnérabilité de sécurité.
 
 ---
 

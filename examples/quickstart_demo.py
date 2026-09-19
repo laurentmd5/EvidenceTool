@@ -16,7 +16,7 @@ from evidencetool.capability.models import CapabilitySet, NetworkCapability
 
 def main() -> None:
     print("=" * 70)
-    print("  EVIDENCETOOL (v1.0.5) — ZERO-TRUST AI-AGENT SAFETY GATEWAY DEMO")
+    print("  EVIDENCETOOL (v1.0.6) — ZERO-TRUST AI-AGENT SAFETY GATEWAY DEMO")
     print("=" * 70)
 
     # 1. Initialize the Gateway with policies, catalogs, and capability boundaries
