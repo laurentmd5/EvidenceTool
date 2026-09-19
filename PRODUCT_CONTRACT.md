@@ -780,13 +780,18 @@ For any multi-hop causal propagation path ($A \longrightarrow B \longrightarrow 
 
 ### 26.10 Contiguous Causal Path & Branching Semantics Invariant (C15 / H2)
 1. **Contiguous Directed Path**: `causal_chain` represents a single, valid, contiguous directed path $[v_0, v_1, \dots, v_k]$ where every adjacent pair $(v_i, v_{i+1})$ is an explicit directed edge declared in the catalog ($v_i \longrightarrow v_{i+1}$).
-2. **Branching Graph Disambiguation**: In branching topologies (e.g. $A \longrightarrow B \longrightarrow S$ and $A \longrightarrow C \longrightarrow S$), linearized node combinations that contain non-existent transitions (e.g. $[A, B, C, S]$ where $B \longrightarrow C$ does not exist) are strictly forbidden. The engine selects a single valid path deterministically using edge priorities, path depth, and deterministic tie-breaking.
+2. **Branching Graph Disambiguation**: In branching topologies (e.g. $A \longrightarrow B \longrightarrow S$ and $A \longrightarrow C \longrightarrow S$), linearized node combinations that contain non-existent transitions (e.g. $[A, B, C, S]$ where $B \longrightarrow C$ does not exist) are strictly forbidden. To find the path to target symptoms, BFS traverses neighbors ordered by edge priority (yielding minimum hops); `_build_causal_chain` deterministically selects among candidate paths by evaluating path depth, edge priority sum, and deterministic lexicographical tie-breaking.
 
 ### 26.11 Multi-Rule Source Preservation Invariant (C16 / H3)
 1. **No Rule Overwriting**: Declarative causal catalogs allow a single source node to originate multiple distinct propagation rules ($A \longrightarrow B$ and $A \longrightarrow C$). All rules MUST be preserved within `dict[str, list[CausalRule]]`.
 2. **Candidate Multi-Rule Evaluation**: Candidate priority reflects the maximum priority declared among all its outgoing propagation rules. The candidate's descriptive metadata reflects the specific active rule governing the traversed edge.
 
-### 26.12 Fail-Closed Catalog Validation Invariant (C17, C18 / H4)
-1. **Mandatory Schema Fields**: Every causal rule must declare non-empty `id`, `source`, `target`, and `relation`. Omission or empty strings raise a `ValueError` during loading.
-2. **Strict Relation Parsing**: Any unrecognized or malformed relation type (e.g. typos like `PROPAGATSE_TO`) MUST fail closed by raising a `ValueError`. Silent fallback to `PROPAGATES_TO` is strictly prohibited. Corrupted catalogs must never execute.
+### 26.12 Fail-Closed Catalog Validation & Zero Silent Coercion Invariant (C17, C18, C20-C23 / H4, H4.1)
+1. **Mandatory Schema Fields (H4 / C17, C18)**: Every causal rule must declare non-empty `id`, `source`, `target`, and `relation`. Omission or empty strings raise a `ValueError` during loading.
+2. **Strict Relation Parsing (H4 / C17)**: Any unrecognized or malformed relation type (e.g. typos like `PROPAGATSE_TO`) MUST fail closed by raising a `ValueError`. Silent fallback to `PROPAGATES_TO` is strictly prohibited.
+3. **Zero Silent Coercion for Priorities (H4.1 / C20)**: `priority` must strictly be an integer. String values (e.g. `"HIGH"`), booleans, or floats MUST fail closed with a `ValueError`. Silent fallback `priority = 0` is strictly prohibited.
+4. **Strict Condition Validation (H4.1 / C21)**: `conditions` must strictly be a dictionary or list formatted with valid `EvidenceStatus` values (`PASS`, `FAIL`, `UNKNOWN`). Non-dict/non-list types, empty condition keys, missing `=` delimiters, or invalid status tokens MUST fail closed with a `ValueError`.
+5. **Strict Boolean Flags (H4.1 / C22)**: Flags such as `is_root_cause_candidate` and `is_surface_symptom` must strictly evaluate as native boolean types. String coercions (e.g. `"maybe"`, `"true"`) or integer representations MUST fail closed with a `ValueError`.
+6. **Strict Rule Structure (H4.1 / C23)**: Every element in `causal_rules` must strictly be a dictionary. Non-dict items MUST fail closed with a `ValueError` rather than being silently filtered.
+7. **Core Principle**: *A causal catalog must never be interpreted differently from what its author declared.* Corrupted or ambiguous catalogs must fail fast during loading.
 

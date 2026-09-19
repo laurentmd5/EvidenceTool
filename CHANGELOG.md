@@ -28,18 +28,19 @@ All notable changes to this project will be documented in this file.
 - **Contiguous Causal Path & Branching Semantics (`C15` / `H2`)**:
   - Formalized `causal_chain` as a single, contiguous directed path $[v_0, \dots, v_k]$ where every adjacent pair $(v_i, v_{i+1})$ has an explicit directed edge ($v_i \longrightarrow v_{i+1}$).
   - In branching graphs ($A \longrightarrow B \longrightarrow S$ and $A \longrightarrow C \longrightarrow S$), eliminated pseudo-chains ($[A, B, C, S]$) containing non-existent transitions.
-  - Deterministic path selection prefers deeper paths and respects edge priorities with deterministic tie-breaking.
+  - BFS traverses neighbors ordered by edge priority (yielding minimum hops to target); `_build_causal_chain` deterministically evaluates candidate paths by depth, edge priority sum, and lexicographical tie-breaker.
 - **Multi-Rule Source Preservation (`C16` / `H3`)**:
   - Replaced single-rule dictionary with `dict[str, list[CausalRule]]`, preventing rule overwriting when a source node declares multiple outgoing branches ($A \longrightarrow B$ and $A \longrightarrow C$).
   - Root candidate priority evaluates the maximum declared priority across all outgoing rules. Candidate descriptions reflect the active branch edge.
-- **Fail-Closed Catalog Validation (`C17`, `C18` / `H4`)**:
+- **Fail-Closed Catalog Validation & Zero Silent Coercion (`C17`, `C18`, `C20-C23` / `H4`, `H4.1`)**:
   - Enforced mandatory non-empty `id`, `source`, `target`, and `relation` in YAML catalog loader.
   - Eliminated silent fallback to `PROPAGATES_TO` on invalid or misspelled relations (`PROPAGATSE_TO` raises `ValueError`). Corrupted catalogs fail closed immediately.
+  - Enforced zero silent coercion (H4.1): non-integer priorities (`priority: "HIGH"`, floats, booleans) raise `ValueError` (C20); malformed or invalid conditions raise `ValueError` (C21); non-boolean flags (`"maybe"`, `1`) raise `ValueError` (C22); non-dictionary rule entries raise `ValueError` (C23).
 - **C12 Model & Contract Clarification**:
   - Formally specified that `PRECLUDED` is an exclusion outcome recorded in `precluded_hypotheses`; it is not an active `CausalCandidateState` (active candidates remain `CONFIRMED`, `POSSIBLE`, and `UNRESOLVED`).
 - **Comprehensive Adversarial Verification Suite**:
-  - Added 6 new adversarial scenarios (C14 to C19) to `tests/test_causality_mode_c_adversarial.py`.
-  - Test suite expanded from 286 to **292 tests passing 100%** with strict type safety (`mypy`), linting (`ruff`), and security scanning (`bandit`).
+  - Added 10 new adversarial scenarios (C14 to C23) to `tests/test_causality_mode_c_adversarial.py`.
+  - Test suite expanded from 286 to **296 tests passing 100%** with strict type safety (`mypy`), linting (`ruff`), and security scanning (`bandit`).
 
 ## [1.0.5] - 2026-09-18
 ### Mode C Hybrid Causal Reasoning Engine (Phase 2)

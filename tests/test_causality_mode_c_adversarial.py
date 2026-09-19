@@ -671,3 +671,184 @@ def test_c19_branching_plus_unrelated_symptom() -> None:
     assert "HOP_C" not in explanation.causal_chain
     assert "SYMPTOM_S2" not in explanation.propagated_symptoms
 
+
+# ============================================================================
+# C20: Invalid Priority Type Fails Closed (H4.1)
+# ============================================================================
+
+def test_c20_invalid_priority_fails_closed(tmp_path: Path) -> None:
+    """
+    C20: Priority must strictly be an integer. Strings, booleans, and floats
+    must fail closed with ValueError rather than being silently coerced.
+    """
+    # String priority
+    bad_prio_str = tmp_path / "bad_prio_str.yaml"
+    bad_prio_str.write_text("""
+causal_rules:
+  - id: R1
+    source: CAUSE_A
+    target: SYMPTOM_S
+    relation: PROPAGATES_TO
+    priority: "HIGH"
+""", encoding="utf-8")
+    with pytest.raises(ValueError, match="priority.*must be an integer"):
+        load_causal_catalog(bad_prio_str)
+
+    # Boolean priority (which in Python is technically an instance of int)
+    bad_prio_bool = tmp_path / "bad_prio_bool.yaml"
+    bad_prio_bool.write_text("""
+causal_rules:
+  - id: R2
+    source: CAUSE_A
+    target: SYMPTOM_S
+    relation: PROPAGATES_TO
+    priority: true
+""", encoding="utf-8")
+    with pytest.raises(ValueError, match="priority.*must be an integer"):
+        load_causal_catalog(bad_prio_bool)
+
+    # Float priority
+    bad_prio_float = tmp_path / "bad_prio_float.yaml"
+    bad_prio_float.write_text("""
+causal_rules:
+  - id: R3
+    source: CAUSE_A
+    target: SYMPTOM_S
+    relation: PROPAGATES_TO
+    priority: 2.5
+""", encoding="utf-8")
+    with pytest.raises(ValueError, match="priority.*must be an integer"):
+        load_causal_catalog(bad_prio_float)
+
+
+# ============================================================================
+# C21: Malformed Conditions Fail Closed (H4.1)
+# ============================================================================
+
+def test_c21_malformed_conditions_fail_closed(tmp_path: Path) -> None:
+    """
+    C21: Conditions must be strictly formatted dict or list with valid EvidenceStatus.
+    Malformed formats, invalid statuses, or empty keys must fail closed.
+    """
+    # Invalid condition status in dict
+    bad_status = tmp_path / "bad_status.yaml"
+    bad_status.write_text("""
+causal_rules:
+  - id: R1
+    source: CAUSE_A
+    target: SYMPTOM_S
+    relation: PROPAGATES_TO
+    conditions:
+      probe.a: MAYBE
+""", encoding="utf-8")
+    with pytest.raises(ValueError, match="condition status.*must be one of"):
+        load_causal_catalog(bad_status)
+
+    # Empty key in dict
+    empty_key = tmp_path / "empty_key.yaml"
+    empty_key.write_text("""
+causal_rules:
+  - id: R2
+    source: CAUSE_A
+    target: SYMPTOM_S
+    relation: PROPAGATES_TO
+    conditions:
+      "": PASS
+""", encoding="utf-8")
+    with pytest.raises(ValueError, match="condition key.*must be a non-empty string"):
+        load_causal_catalog(empty_key)
+
+    # List item missing '=' delimiter
+    no_eq = tmp_path / "no_eq.yaml"
+    no_eq.write_text("""
+causal_rules:
+  - id: R3
+    source: CAUSE_A
+    target: SYMPTOM_S
+    relation: PROPAGATES_TO
+    conditions:
+      - probe.a_PASS
+""", encoding="utf-8")
+    with pytest.raises(ValueError, match="missing '=' delimiter"):
+        load_causal_catalog(no_eq)
+
+    # List item with invalid status
+    bad_list_status = tmp_path / "bad_list_status.yaml"
+    bad_list_status.write_text("""
+causal_rules:
+  - id: R4
+    source: CAUSE_A
+    target: SYMPTOM_S
+    relation: PROPAGATES_TO
+    conditions:
+      - probe.a=INVALID
+""", encoding="utf-8")
+    with pytest.raises(ValueError, match="condition status.*must be one of"):
+        load_causal_catalog(bad_list_status)
+
+    # Completely invalid conditions type
+    bad_type = tmp_path / "bad_type.yaml"
+    bad_type.write_text("""
+causal_rules:
+  - id: R5
+    source: CAUSE_A
+    target: SYMPTOM_S
+    relation: PROPAGATES_TO
+    conditions: 12345
+""", encoding="utf-8")
+    with pytest.raises(ValueError, match="Invalid conditions format"):
+        load_causal_catalog(bad_type)
+
+
+# ============================================================================
+# C22: Non-Boolean Flags Fail Closed (H4.1)
+# ============================================================================
+
+def test_c22_non_boolean_flags_fail_closed(tmp_path: Path) -> None:
+    """
+    C22: Boolean flags (is_root_cause_candidate, is_surface_symptom) must
+    strictly be boolean types. String coercions ("maybe", "true") must fail closed.
+    """
+    bad_root = tmp_path / "bad_root.yaml"
+    bad_root.write_text("""
+causal_rules:
+  - id: R1
+    source: CAUSE_A
+    target: SYMPTOM_S
+    relation: PROPAGATES_TO
+    is_root_cause_candidate: "maybe"
+""", encoding="utf-8")
+    with pytest.raises(ValueError, match="is_root_cause_candidate.*must be a boolean"):
+        load_causal_catalog(bad_root)
+
+    bad_symptom = tmp_path / "bad_symptom.yaml"
+    bad_symptom.write_text("""
+causal_rules:
+  - id: R2
+    source: CAUSE_A
+    target: SYMPTOM_S
+    relation: PROPAGATES_TO
+    is_surface_symptom: 1
+""", encoding="utf-8")
+    with pytest.raises(ValueError, match="is_surface_symptom.*must be a boolean"):
+        load_causal_catalog(bad_symptom)
+
+
+# ============================================================================
+# C23: Non-Dict Rule Item Fails Closed (H4.1)
+# ============================================================================
+
+def test_c23_non_dict_rule_fails_closed(tmp_path: Path) -> None:
+    """
+    C23: Every entry in causal_rules must strictly be a dictionary.
+    Non-dict items must fail closed rather than being silently skipped.
+    """
+    bad_item = tmp_path / "bad_item.yaml"
+    bad_item.write_text("""
+causal_rules:
+  - "not_a_dictionary"
+""", encoding="utf-8")
+    with pytest.raises(ValueError, match="expected dictionary"):
+        load_causal_catalog(bad_item)
+
+

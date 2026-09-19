@@ -134,7 +134,7 @@ Des sondes en échec dans des domaines distincts sans lien déclaré produisent 
 Tout nœud figurant dans `causal_chain` ou `propagated_symptoms` doit appartenir strictement au sous-graphe orienté atteignable de la cause racine primaire. Les symptômes issus de composants distincts ou non confirmés ne doivent jamais polluer l'explication causale de la racine.
 
 ### C15 — Sémantique de Chemin Causal Continu & Graphe Ramifié (H2)
-`causal_chain` représente un chemin orienté unique, valide et contigu $[v_0, v_1, \dots, v_k]$ où chaque transition adjacente $(v_i, v_{i+1})$ correspond à une arête directe déclarée ($v_i \longrightarrow v_{i+1}$). Dans un graphe ramifié ($A \longrightarrow B \longrightarrow S$ et $A \longrightarrow C \longrightarrow S$), les concaténations de nœuds formant des transitions inexistantes ($[A, B, C, S]$) sont proscrites. Un chemin unique déterministe est sélectionné par priorité d'arêtes, profondeur de chaîne et départage déterministe.
+`causal_chain` représente un chemin orienté unique, valide et contigu $[v_0, v_1, \dots, v_k]$ où chaque transition adjacente $(v_i, v_{i+1})$ correspond à une arête directe déclarée ($v_i \longrightarrow v_{i+1}$). Dans un graphe ramifié ($A \longrightarrow B \longrightarrow S$ et $A \longrightarrow C \longrightarrow S$), les concaténations de nœuds formant des transitions inexistantes ($[A, B, C, S]$) sont proscrites. Le BFS parcourt les voisins ordonnés par priorité d'arêtes (assurant un nombre minimal de sauts) ; `_build_causal_chain` sélectionne ensuite parmi les chemins candidats en évaluant la profondeur du chemin, la somme des priorités d'arête et un départage lexicographique strict.
 
 ### C16 — Préservation des Règles Multiples par Source (H3)
 Plusieurs règles de propagation issues du même nœud source ($A \longrightarrow B$ et $A \longrightarrow C$) sont conservées sans écrasement. La priorité du candidat racine évalue le maximum des priorités déclarées sur ses règles sortantes.
@@ -144,6 +144,9 @@ Le parseur de catalogues impose obligatoirement les champs non vides `id`, `sour
 
 ### C19 — Graphe Ramifié avec Symptôme Externe Disjoint (H1 + H2)
 Lorsqu'une topologie ramifiée coexiste avec des symptômes externes non reliés, l'atteignabilité garantit que seuls les nœuds du chemin causal actif vers les symptômes atteignables sont inclus. Les symptômes externes sont totalement exclus.
+
+### C20–C23 — Zéro Coercition Silencieuse dans le Parseur de Catalogues (H4.1)
+Le parseur YAML (`loader.py`) rejette toute priorité non entière (C20), toute condition mal formée ou non analysable (C21), tout drapeau non booléen (C22), ou toute entrée de règle non dictionnaire (C23) avec une `ValueError`. Aucune coercition silencieuse de type ou présomption implicite n'est admise.
 
 ---
 

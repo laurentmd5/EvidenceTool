@@ -134,7 +134,7 @@ Unconnected failing probes across separate domains produce `ROOT_CAUSE_UNKNOWN` 
 Every node appearing in `causal_chain` or `propagated_symptoms` must strictly belong to the directed reachable subgraph of the primary root cause. Symptoms belonging to unrelated or unconfirmed components never leak into the root explanation.
 
 ### C15 — Contiguous Causal Path & Branching Semantics (H2)
-`causal_chain` represents a single, contiguous directed path $[v_0, v_1, \dots, v_k]$ where every adjacent pair $(v_i, v_{i+1})$ has an explicit edge $v_i \longrightarrow v_{i+1}$. In branching graphs ($A \longrightarrow B \longrightarrow S$ and $A \longrightarrow C \longrightarrow S$), pseudo-chains like $[A, B, C, S]$ (containing non-existent transitions) are strictly prohibited. A single deterministic path is chosen via edge priority, path depth, and tie-breaking.
+`causal_chain` represents a single, contiguous directed path $[v_0, v_1, \dots, v_k]$ where every adjacent pair $(v_i, v_{i+1})$ has an explicit edge $v_i \longrightarrow v_{i+1}$. In branching graphs ($A \longrightarrow B \longrightarrow S$ and $A \longrightarrow C \longrightarrow S$), pseudo-chains like $[A, B, C, S]$ (containing non-existent transitions) are strictly prohibited. BFS traverses neighbors ordered by edge priority (yielding minimum hops); `_build_causal_chain` deterministically evaluates candidate paths by depth, edge priority sum, and deterministic lexicographical tie-breaking.
 
 ### C16 — Multi-Rule Source Preservation (H3)
 Multiple propagation rules declared from the same source node ($A \longrightarrow B$ and $A \longrightarrow C$) are preserved without overwriting. Root candidate priority evaluates the maximum priority declared across all its outgoing rules.
@@ -144,6 +144,9 @@ The causal catalog loader enforces mandatory non-empty `id`, `source`, `target`,
 
 ### C19 — Branching with Unrelated External Symptoms (H1 + H2)
 When branching topologies coexist with unrelated external symptoms, reachability guarantees that only nodes on the active path to reachable symptoms are included. External symptoms are completely excluded.
+
+### C20–C23 — Zero Silent Coercion in Catalog Loader (H4.1)
+The YAML catalog loader (`loader.py`) rejects any non-integer priority (C20), malformed or unparseable conditions (C21), non-boolean flags (C22), or non-dictionary rule entries (C23) with a `ValueError`. Zero silent type coercion or implicit assumption is permitted.
 
 ---
 

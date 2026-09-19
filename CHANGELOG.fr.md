@@ -28,18 +28,19 @@ Tous les changements notables apportés à ce projet sont documentés dans ce fi
 - **Sémantique de Chemin Causal Continu & Graphe Ramifié (`C15` / `H2`)** :
   - Formalisation de `causal_chain` comme un chemin orienté contigu $[v_0, \dots, v_k]$ où chaque transition adjacente $(v_i, v_{i+1})$ correspond à une arête directe déclarée ($v_i \longrightarrow v_{i+1}$).
   - Dans les topologies ramifiées ($A \longrightarrow B \longrightarrow S$ et $A \longrightarrow C \longrightarrow S$), élimination des pseudo-chaînes ($[A, B, C, S]$) contenant des transitions inexistantes.
-  - Sélection déterministe privilégiant la profondeur de chaîne et respectant les priorités d'arêtes avec arbitrage sans ambiguïté.
+  - Le BFS parcourt les voisins ordonnés par priorité d'arêtes (assurant un nombre minimal de sauts) ; `_build_causal_chain` sélectionne ensuite parmi les chemins candidats en évaluant la profondeur de chaîne, la somme des priorités d'arête et un départage lexicographique strict.
 - **Préservation des Règles Multiples par Source (`C16` / `H3`)** :
   - Remplacement du dictionnaire unitaire par `dict[str, list[CausalRule]]`, empêchant l'écrasement de règles lorsqu'un nœud source émet plusieurs branches ($A \longrightarrow B$ et $A \longrightarrow C$).
   - La priorité du candidat racine évalue le maximum des priorités de ses règles sortantes. La description du candidat reflète la règle active de la branche empruntée.
-- **Validation Fail-Closed des Catalogues (`C17`, `C18` / `H4`)** :
+- **Validation Fail-Closed & Zéro Coercition Silencieuse des Catalogues (`C17`, `C18`, `C20-C23` / `H4`, `H4.1`)** :
   - Champs obligatoires `id`, `source`, `target` et `relation` strictement imposés dans le parseur YAML.
   - Élimination du repli silencieux vers `PROPAGATES_TO` en cas d'erreur de frappe (`PROPAGATSE_TO` lève immédiatement une `ValueError`). Les catalogues corrompus échouent à froid (*fail-closed*).
+  - Règle de zéro coercition silencieuse (H4.1) : les priorités non entières (`priority: "HIGH"`, booléens, flottants) lèvent `ValueError` (C20) ; les conditions mal formées ou statuts invalides lèvent `ValueError` (C21) ; les drapeaux non booléens lèvent `ValueError` (C22) ; les entrées de règles non dictionnaires lèvent `ValueError` (C23).
 - **Clarification du Modèle C12** :
   - Spécification formelle que `PRECLUDED` est un résultat d'exclusion consigné dans `precluded_hypotheses` ; ce n'est pas un état de `CausalCandidateState` actif (qui demeurent `CONFIRMED`, `POSSIBLE`, `UNRESOLVED`).
 - **Suite Complète de Tests Adversaires** :
-  - Ajout de 6 nouveaux scénarios adversaires (C14 à C19) dans `tests/test_causality_mode_c_adversarial.py`.
-  - La suite de tests passe de 286 à **292 tests réussis à 100 %** avec typage strict (`mypy`), linter (`ruff`) et audit de sécurité (`bandit`).
+  - Ajout de 10 nouveaux scénarios adversaires (C14 à C23) dans `tests/test_causality_mode_c_adversarial.py`.
+  - La suite de tests passe de 286 à **296 tests réussis à 100 %** avec typage strict (`mypy`), linter (`ruff`) et audit de sécurité (`bandit`).
 
 ## [1.0.5] - 2026-09-18
 ### Moteur de Raisonnement Causal Hybride Mode C (Phase 2)
