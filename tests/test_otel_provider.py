@@ -12,8 +12,10 @@ from evidencetool.providers.base import ProviderContext
 from evidencetool.providers.otel import OTelProvider
 from evidencetool.providers.registry import ProviderTrust, get_provider, get_provider_trust
 from evidencetool.providers.telemetry_client import (
+    HARD_BUDGET_CEILINGS,
     TelemetryBudget,
     TelemetryHTTPClient,
+    build_clamped_telemetry_budget,
     sanitize_error,
     sanitize_url,
 )
@@ -243,3 +245,179 @@ def test_otel_provider_transport_failure_unknown():
     err_obs = obs_map["otel.http_error_rate"]
     assert err_obs.value["status"] == "UNKNOWN"
     assert err_obs.transport_status == "failed"
+
+
+def test_telemetry_client_read_timeout_enforced():
+    """Verify read_timeout is explicitly applied to socket."""
+    budget = TelemetryBudget(read_timeout=3.5)
+    client = TelemetryHTTPClient(budget=budget)
+
+    class MockConnWithSock:
+        def __init__(self, *args, **kwargs):
+            self.sock = Mock()
+
+        def request(self, *args, **kwargs):
+            pass
+
+        def getresponse(self):
+            resp = Mock()
+            resp.status = 200
+            resp.read.return_value = b'{"status": "ok"}'
+            return resp
+
+        def close(self):
+            pass
+
+    with patch("evidencetool.providers.telemetry_client.http.client.HTTPConnection", MockConnWithSock):
+        status, body, err = client.get("http://127.0.0.1:9090", "/test")
+
+    assert status == 200
+
+
+def test_budget_clamped_against_hard_ceiling():
+    """Verify that excessive ProviderContext budget parameters are clamped to hard ceilings."""
+    raw = {
+        "max_requests": 500,
+        "max_response_bytes": 100 * 1024 * 1024,
+        "connect_timeout": 60.0,
+        "read_timeout": 60.0,
+        "max_query_length": 50000,
+        "max_lookback_seconds": 1000000,
+        "max_result_items": 10000,
+        "max_traces": 5000,
+        "max_spans_per_trace": 100000,
+    }
+    budget = build_clamped_telemetry_budget(raw)
+    for k, ceiling in HARD_BUDGET_CEILINGS.items():
+        assert getattr(budget, k) <= ceiling
+
+
+def test_invalid_lookback_resolves_unknown():
+    """Verify invalid lookback format produces UNKNOWN status instead of silent 5m default."""
+    p = OTelProvider()
+    ctx = ProviderContext({
+        "traces_endpoint": "http://127.0.0.1:3200",
+        "lookback": "invalid-garbage",
+    })
+    obs = p.collect(ctx)
+    obs_map = {o.id: o for o in obs}
+    error_spans = obs_map["otel.error_spans_count"]
+    assert error_spans.value["status"] == "UNKNOWN"
+    assert "Invalid lookback specification" in error_spans.message
+
+
+def test_max_lookback_clamped_with_audit_metadata():
+    """Verify lookback > max_lookback_seconds is clamped with audit trail metadata."""
+    p = OTelProvider()
+
+    def conn_factory(*args, **kwargs):
+        conn = Mock()
+
+        def req_handler(method, url, **kw):
+            resp = Mock()
+            resp.status = 200
+            if "traces" in url:
+                resp.read.return_value = json.dumps({"data": []}).encode()
+            else:
+                resp.read.return_value = b'{"status": "ok"}'
+            conn.getresponse.return_value = resp
+
+        conn.request.side_effect = req_handler
+        return conn
+
+    with patch("evidencetool.providers.telemetry_client.http.client.HTTPConnection", side_effect=conn_factory):
+        ctx = ProviderContext({
+            "traces_endpoint": "http://127.0.0.1:3200",
+            "lookback": "7d",
+            "max_lookback_seconds": 3600,
+        })
+        obs = p.collect(ctx)
+
+    obs_map = {o.id: o for o in obs}
+    error_spans = obs_map["otel.error_spans_count"]
+    val = error_spans.value
+    assert val["requested_lookback"] == "7d"
+    assert val["effective_lookback"] == "3600s"
+    assert val["lookback_clamped"] is True
+
+
+def test_max_result_items_bounded():
+    """Verify Prometheus response parsing is sliced by max_result_items."""
+    p = OTelProvider()
+
+    prom_data = {
+        "status": "success",
+        "data": {
+            "resultType": "vector",
+            "result": [{"value": [1600000000, "0.01"]} for _ in range(50)],
+        },
+    }
+
+    def conn_factory(*args, **kwargs):
+        conn = Mock()
+
+        def req_handler(*args, **kwargs):
+            resp = Mock()
+            resp.status = 200
+            resp.read.return_value = json.dumps(prom_data).encode()
+            conn.getresponse.return_value = resp
+
+        conn.request.side_effect = req_handler
+        return conn
+
+    with patch("evidencetool.providers.telemetry_client.http.client.HTTPConnection", side_effect=conn_factory):
+        ctx = ProviderContext({
+            "metrics_endpoint": "http://127.0.0.1:9090",
+            "max_result_items": 5,
+        })
+        obs = p.collect(ctx)
+
+    obs_map = {o.id: o for o in obs}
+    assert obs_map["otel.http_error_rate"].value["value"] == 0.01
+
+
+def test_max_traces_and_spans_bounded():
+    """Verify trace and span counting respects max_traces and max_spans_per_trace limits."""
+    p = OTelProvider()
+
+    # 10 traces, each with 20 error spans
+    mock_traces = {
+        "data": [
+            {
+                "traceID": f"trace_{i}",
+                "spans": [
+                    {"tags": [{"key": "error", "value": True}]}
+                    for _ in range(20)
+                ],
+            }
+            for i in range(10)
+        ]
+    }
+
+    def conn_factory(*args, **kwargs):
+        conn = Mock()
+
+        def req_handler(method, url, **kw):
+            resp = Mock()
+            resp.status = 200
+            if "traces" in url:
+                resp.read.return_value = json.dumps(mock_traces).encode()
+            else:
+                resp.read.return_value = b'{"status": "ok"}'
+            conn.getresponse.return_value = resp
+
+        conn.request.side_effect = req_handler
+        return conn
+
+    with patch("evidencetool.providers.telemetry_client.http.client.HTTPConnection", side_effect=conn_factory):
+        # Bound to 2 traces and 5 spans per trace => total max 10 error spans
+        ctx = ProviderContext({
+            "traces_endpoint": "http://127.0.0.1:3200",
+            "max_traces": 2,
+            "max_spans_per_trace": 5,
+        })
+        obs = p.collect(ctx)
+
+    obs_map = {o.id: o for o in obs}
+    assert obs_map["otel.error_spans_count"].value["count"] == 10
+

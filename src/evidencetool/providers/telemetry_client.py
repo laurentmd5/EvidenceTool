@@ -38,6 +38,72 @@ class TelemetryBudget:
     max_lookback_seconds: int = 3600  # 1 hour
     max_result_items: int = 100
     max_traces: int = 50
+    max_spans_per_trace: int = 500
+
+
+HARD_BUDGET_CEILINGS: dict[str, int | float] = {
+    "max_requests": 20,
+    "max_response_bytes": 5 * 1024 * 1024,  # 5 MB
+    "connect_timeout": 10.0,
+    "read_timeout": 10.0,
+    "max_query_length": 2048,
+    "max_lookback_seconds": 86400,  # 24h
+    "max_result_items": 1000,
+    "max_traces": 200,
+    "max_spans_per_trace": 1000,
+}
+
+
+def _clamp_int_budget(val: object, default: int, ceiling: int) -> int:
+    if val is None:
+        return default
+    try:
+        int_val = int(str(val))
+        if int_val <= 0:
+            return default
+        return min(int_val, ceiling)
+    except (ValueError, TypeError):
+        return default
+
+
+def _clamp_float_budget(val: object, default: float, ceiling: float) -> float:
+    if val is None:
+        return default
+    try:
+        flt_val = float(str(val))
+        if flt_val <= 0:
+            return default
+        return min(flt_val, ceiling)
+    except (ValueError, TypeError):
+        return default
+
+
+def build_clamped_telemetry_budget(
+    max_requests: object = None,
+    max_response_bytes: object = None,
+    connect_timeout: object = None,
+    read_timeout: object = None,
+    max_query_length: object = None,
+    max_lookback_seconds: object = None,
+    max_result_items: object = None,
+    max_traces: object = None,
+    max_spans_per_trace: object = None,
+) -> TelemetryBudget:
+    """
+    Builds a TelemetryBudget clamping all requested values against strict internal hard ceilings.
+    Prevents configuration-based budget evasion.
+    """
+    return TelemetryBudget(
+        max_requests=_clamp_int_budget(max_requests, 5, int(HARD_BUDGET_CEILINGS["max_requests"])),
+        max_response_bytes=_clamp_int_budget(max_response_bytes, 1024 * 1024, int(HARD_BUDGET_CEILINGS["max_response_bytes"])),
+        connect_timeout=_clamp_float_budget(connect_timeout, 2.0, float(HARD_BUDGET_CEILINGS["connect_timeout"])),
+        read_timeout=_clamp_float_budget(read_timeout, 3.0, float(HARD_BUDGET_CEILINGS["read_timeout"])),
+        max_query_length=_clamp_int_budget(max_query_length, 1024, int(HARD_BUDGET_CEILINGS["max_query_length"])),
+        max_lookback_seconds=_clamp_int_budget(max_lookback_seconds, 3600, int(HARD_BUDGET_CEILINGS["max_lookback_seconds"])),
+        max_result_items=_clamp_int_budget(max_result_items, 100, int(HARD_BUDGET_CEILINGS["max_result_items"])),
+        max_traces=_clamp_int_budget(max_traces, 50, int(HARD_BUDGET_CEILINGS["max_traces"])),
+        max_spans_per_trace=_clamp_int_budget(max_spans_per_trace, 500, int(HARD_BUDGET_CEILINGS["max_spans_per_trace"])),
+    )
 
 
 def sanitize_url(raw_url: str) -> str:
@@ -80,6 +146,25 @@ def sanitize_error(error: str | None, raw_url: str) -> str | None:
     if error is None:
         return None
     return error.replace(raw_url, sanitize_url(raw_url))
+
+
+def _create_http_connection(
+    scheme: str,
+    target_host: str,
+    port: int,
+    timeout: float,
+    allow_insecure_tls: bool,
+) -> http.client.HTTPConnection:
+    if scheme == "https":
+        ctx = ssl.create_default_context()
+        if allow_insecure_tls:
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+        else:
+            ctx.check_hostname = True
+            ctx.verify_mode = ssl.CERT_REQUIRED
+        return http.client.HTTPSConnection(target_host, port=port, timeout=timeout, context=ctx)
+    return http.client.HTTPConnection(target_host, port=port, timeout=timeout)
 
 
 class TelemetryHTTPClient:
@@ -163,18 +248,7 @@ class TelemetryHTTPClient:
         allow_insecure_tls = bool(self.capabilities and self.capabilities.network.allow_insecure_tls)
 
         try:
-            conn: http.client.HTTPConnection
-            if scheme == "https":
-                ctx = ssl.create_default_context()
-                if allow_insecure_tls:
-                    ctx.check_hostname = False
-                    ctx.verify_mode = ssl.CERT_NONE
-                else:
-                    ctx.check_hostname = True
-                    ctx.verify_mode = ssl.CERT_REQUIRED
-                conn = http.client.HTTPSConnection(target_host, port=port, timeout=timeout, context=ctx)
-            else:
-                conn = http.client.HTTPConnection(target_host, port=port, timeout=timeout)
+            conn = _create_http_connection(scheme, target_host, port, timeout, allow_insecure_tls)
 
             conn.request(
                 "GET",
@@ -184,6 +258,15 @@ class TelemetryHTTPClient:
                     "Accept": "application/json",
                 },
             )
+
+            # Active Read Timeout Enforcement (A1)
+            sock = getattr(conn, "sock", None)
+            if sock is not None:
+                effective_read_timeout = self.budget.read_timeout
+                if self.capabilities:
+                    effective_read_timeout = min(effective_read_timeout, self.capabilities.network.timeout_seconds)
+                conn.sock.settimeout(effective_read_timeout)
+
             resp = conn.getresponse()
             status_code = resp.status
 

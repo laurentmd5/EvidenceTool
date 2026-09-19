@@ -4,6 +4,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.7] - 2026-09-19
+### Mode A & Mode B Production Hardening
+- **Mode A (Inbound Telemetry) Budget Enforcement & Defenses (`A1`, `A2`)**:
+  - **Full TelemetryBudget Enforcement (`A1`)**: Enforced all declared budget dimensions at runtime: network socket `read_timeout`, Prometheus vector slicing (`max_result_items`), distributed traces query limits (`max_traces`), and per-trace span iteration limits (`max_spans_per_trace`).
+  - **Hard Ceilings Anti-Bypass (`A1`)**: Introduced immutable internal `HARD_BUDGET_CEILINGS` and `build_clamped_telemetry_budget` helper, clamping all caller-provided `ProviderContext` parameters to prevent denial-of-service or configuration bypass.
+  - **Deterministic Lookback Specification (`A2`)**: Implemented `_parse_lookback`:
+    - Valid lookback $\le$ budget is preserved.
+    - Valid lookback $>$ budget is clamped to `max_lookback_seconds` with audit transparency metadata (`requested_lookback`, `effective_lookback`, `lookback_clamped: true`).
+    - Invalid lookback syntax evaluates fail-closed to `Observation(status="UNKNOWN")` (`transport_status="failed"`), eliminating silent 5m fallbacks.
+  - **Pre-Deserialization Stream Bounding (`A2`)**: Bounded raw byte reading before `json.loads` to protect CPU and memory.
+- **Mode B (Outbound Tracing) Resilience & Canonical Span Identity (`B1`, `B2`)**:
+  - **Asynchronous Batch Export (`B1`)**: Upgraded standalone OTLP tracer from `SimpleSpanProcessor` to `BatchSpanProcessor` (`max_queue_size=512`). Span end operations enqueue in memory and never block synchronously on collector network round-trips.
+  - **Dual Bounded Timeouts (`B1`)**:
+    - `OTLP_EXPORT_TIMEOUT_SECONDS = 2.0`: Strict HTTP connection and request timeout for OTLP export.
+    - `OTLP_FLUSH_TIMEOUT_MILLIS = 2000`: Bounded maximum flush duration during `tracer.finish()`.
+    - Pure Python fallback exporter timeout harmonized to 2.0s.
+  - **Exporter Failure $\neq$ Diagnostic Failure (`B1`)**: Collector 500 errors, network dropouts, or timeout exceptions are isolated as telemetry export warnings and never fail or corrupt the diagnosis.
+  - **Canonical Span Identity (`B2`)**: Refactored span tracking to use unique `span_id` as primary key (`_active_spans_by_id`, `_active_otel_spans_by_id`). Internal diagnostic orchestrators (`diagnose.py`) pass `SpanRecord` handles, preventing overwrite collisions when concurrent or sequential child spans share identical names. Secondary LIFO stack preserves backward compatibility for legacy name strings.
+- **Expanded Quality Gates & Parity**:
+  - Added dedicated unit tests covering A1, A2, B1, and B2. Full suite expanded from 296 to **307 tests passing 100%**.
+  - 100% bilingual documentation parity in English and French.
+
 ## [1.0.6] - 2026-09-18
 ### Mode C Hybrid Causal Reasoning Adversarial Hardening
 - **Pre-Arbitration Graph Validation & Cycle Detection (`C7`)**:

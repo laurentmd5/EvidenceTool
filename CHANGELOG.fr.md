@@ -4,6 +4,28 @@
 
 Tous les changements notables apportés à ce projet sont documentés dans ce fichier.
 
+## [1.0.7] - 2026-09-19
+### Durcissement de Production du Mode A & du Mode B
+- **Mode A (Télémétrie Inbound) Application des Budgets & Défenses (`A1`, `A2`)** :
+  - **Application Exhaustive de TelemetryBudget (`A1`)** : Application effective de toutes les dimensions du budget au runtime : délai d'expiration socket (`read_timeout`), découpage des vecteurs Prometheus (`max_result_items`), limitation des traces distribuées requêtées (`max_traces`), et bornage de l'itération CPU des spans par trace (`max_spans_per_trace`).
+  - **Plafonds Inviolables Anti-Contournement (`A1`)** : Introduction des constantes immuables `HARD_BUDGET_CEILINGS` et du constructeur `build_clamped_telemetry_budget`, bridant strictement les paramètres issus de `ProviderContext` contre tout déni de service ou tentative de contournement de quota.
+  - **Spécification Déterministe du Lookback (`A2`)** : Implémentation de `_parse_lookback` :
+    - Lookback valide $\le$ budget : préservé à l'identique.
+    - Lookback valide $>$ budget : bridé à `max_lookback_seconds` avec métadonnées de transparence et d'audit (`requested_lookback`, `effective_lookback`, `lookback_clamped: true`).
+    - Syntaxe invalide : évaluée fail-closed en `Observation(status="UNKNOWN")` (`transport_status="failed"`), éliminant tout repli silencieux vers 5m.
+  - **Bornage des Flux Pré-Désérialisation (`A2`)** : Lecture bornée des octets bruts avant l'appel à `json.loads` pour protéger la mémoire et le CPU.
+- **Mode B (Tracing Outbound) Résilience & Identité Canonique des Spans (`B1`, `B2`)** :
+  - **Export Asynchrone par Lots (`B1`)** : Remplacement de `SimpleSpanProcessor` par `BatchSpanProcessor` (`max_queue_size=512`) en mode autonome. La clôture d'une span (`end_span()`) s'effectue en mémoire sans blocage synchrone sur les allers-retours réseau du collecteur.
+  - **Double Budgets Temporels Bornés (`B1`)** :
+    - `OTLP_EXPORT_TIMEOUT_SECONDS = 2.0` : Délai d'expiration strict pour la connexion et requête HTTP de l'export OTLP.
+    - `OTLP_FLUSH_TIMEOUT_MILLIS = 2000` : Délai maximal de vidage lors de `tracer.finish()`.
+    - Délai d'expiration du fallback pur Python harmonisé à 2,0s.
+  - **Invariant Défaillance d'Export $\neq$ Défaillance de Diagnostic (`B1`)** : Tout code HTTP 500, coupure réseau ou exception d'expiration émis par le collecteur est consigné comme avertissement d'observabilité sans jamais faire échouer ni corrompre le diagnostic.
+  - **Identité Canonique des Spans (`B2`)** : Suivi des spans réarchitecturé autour du `span_id` unique comme clé primaire (`_active_spans_by_id`, `_active_otel_spans_by_id`). Les orchestrateurs internes (`diagnose.py`) manipulent directement les descripteurs `SpanRecord`, évitant toute collision ou écrasement en cas de noms identiques concurrents ou successifs. Une pile LIFO secondaire préserve la rétrocompatibilité pour les recherches par nom textuel.
+- **Portes de Qualité & Parité Bilingue Étendues** :
+  - Ajout de tests unitaires dédiés pour A1, A2, B1 et B2. Suite complète portée de 296 à **307 tests réussis à 100 %**.
+  - Parité documentaire bilingue intégrale (100 %) en français et en anglais.
+
 ## [1.0.6] - 2026-09-18
 ### Durcissement Causal du Mode C (Raisonnement Causal Hybride & Adversaire)
 - **Validation du Graphe & Détection de Cycles Préalable à l'Arbitrage (`C7`)** :

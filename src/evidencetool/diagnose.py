@@ -106,8 +106,9 @@ def diagnose(  # noqa: C901
     # 2. Instantiate and run only the needed providers
     provider_context = ProviderContext(context, execution=execution)
     for namespace in sorted(needed_namespaces):
+        prov_span = None
         if tracer:
-            tracer.start_span(f"evidencetool.provider.{namespace}")
+            prov_span = tracer.start_span(f"evidencetool.provider.{namespace}")
         t0 = time.time()
         try:
             if execution and not execution.capabilities.allows_provider(namespace):
@@ -157,9 +158,9 @@ def diagnose(  # noqa: C901
                     )
                 )
             observations += collected
-            if tracer:
+            if tracer and prov_span:
                 tracer.end_span(
-                    f"evidencetool.provider.{namespace}",
+                    prov_span,
                     status="OK",
                     attributes={"evidencetool.provider.observations_count": len(collected)},
                 )
@@ -185,9 +186,9 @@ def diagnose(  # noqa: C901
                         observed_at=datetime.now(timezone.utc),
                     )
                 )
-            if tracer:
+            if tracer and prov_span:
                 tracer.end_span(
-                    f"evidencetool.provider.{namespace}",
+                    prov_span,
                     status="ERROR",
                     description=str(exc),
                     attributes={"evidencetool.provider.capability_denied": True},
@@ -218,9 +219,9 @@ def diagnose(  # noqa: C901
                         observed_at=datetime.now(timezone.utc),
                     )
                 )
-            if tracer:
+            if tracer and prov_span:
                 tracer.end_span(
-                    f"evidencetool.provider.{namespace}",
+                    prov_span,
                     status="ERROR",
                     description=str(exc),
                     attributes={"evidencetool.provider.error": str(exc)},
@@ -229,8 +230,9 @@ def diagnose(  # noqa: C901
 
     # 3. Evaluate observations
     t0 = time.time()
+    eval_span = None
     if tracer:
-        tracer.start_span("evidencetool.evaluation")
+        eval_span = tracer.start_span("evidencetool.evaluation")
     requirements_by_id = {req.id: req for req in policy.required_evidence}
     max_ages = {
         req.id: req.max_age for req in policy.required_evidence if req.max_age is not None
@@ -244,9 +246,9 @@ def diagnose(  # noqa: C901
     for e in evidence:
         m.evidence_status_counts[e.status] += 1
 
-    if tracer:
+    if tracer and eval_span:
         tracer.end_span(
-            "evidencetool.evaluation",
+            eval_span,
             attributes={
                 "evidencetool.evidence.total": len(evidence),
                 "evidencetool.evidence.pass": m.evidence_status_counts.get(EvidenceStatus.PASS, 0),
@@ -269,20 +271,22 @@ def diagnose(  # noqa: C901
     from evidencetool.decision.correlation import correlate_state
     from evidencetool.models.policy import PolicySchema
 
+    corr_span = None
     if tracer:
-        tracer.start_span("evidencetool.correlation")
+        corr_span = tracer.start_span("evidencetool.correlation")
     state = correlate_state(evidence, catalog or [])
-    if tracer:
+    if tracer and corr_span:
         tracer.end_span(
-            "evidencetool.correlation",
+            corr_span,
             attributes={
                 "evidencetool.situations.matched": len(state.situations),
                 "evidencetool.situations.unresolved": len(state.unresolved_evidence),
             },
         )
 
+    caus_span = None
     if tracer:
-        tracer.start_span("evidencetool.causality")
+        caus_span = tracer.start_span("evidencetool.causality")
     causality_explanation = reconstruct_causality(evidence, state, causality_catalog or [])
     if tracer:
         primary_cause_id = causality_explanation.primary_root_cause
@@ -291,6 +295,7 @@ def diagnose(  # noqa: C901
             primary_root_cause=primary_cause_id,
             causal_chain=list(causality_explanation.causal_chain),
             precluded_hypotheses=causality_explanation.precluded_hypotheses,
+            span=caus_span,
         )
 
     if policy.schema == PolicySchema.V2_SITUATIONAL:

@@ -670,6 +670,15 @@ EvidenceTool produces distributed OpenTelemetry traces mapping its internal oper
 2. **Official OTLP Exporter in Standalone Mode**: When executed standalone (CLI or isolated script with `--otel-endpoint`) and `opentelemetry-exporter-otlp-proto-http` is installed, EvidenceTool initializes an internal `TracerProvider` with `OTLPSpanExporter` transmitting standard binary Protobuf over HTTP (`application/x-protobuf`) without mutating the global host provider.
 3. **Pure-Python Zero-Dependency Fallback**: If the OpenTelemetry SDK/exporter packages are absent, EvidenceTool falls back to transmitting standard OTLP JSON (`application/json`) via pure Python standard library HTTP requests.
 
+### 24.8 Production Hardening Contract (B1 & B2 — V1.0.7 Contract)
+1. **Asynchronous Non-Blocking Processing (B1)**: In standalone mode, spans are enqueued in memory using `BatchSpanProcessor` (`max_queue_size=512`). Span end operations never block synchronously on collector network round-trips.
+2. **Dual Bounded Timeouts (B1)**:
+   - `OTLP_EXPORT_TIMEOUT_SECONDS = 2.0`: HTTP transport and connection timeout for OTLP export.
+   - `OTLP_FLUSH_TIMEOUT_MILLIS = 2000`: Maximum flush grace period permitted during `tracer.finish()`.
+   - Pure-Python fallback exporter timeout is harmonized to `OTLP_EXPORT_TIMEOUT_SECONDS = 2.0`.
+3. **Exporter Failure $\neq$ Diagnostic Failure Invariant (B1)**: Exporter failures (HTTP 500, timeouts, connection refused, drops) are telemetry export failures, NEVER diagnostic failures. `tracer.finish()` handles export exceptions gracefully and always returns the completed `TraceRecord`.
+4. **Canonical Span Identity Invariant (B2)**: Unique `span_id` is the primary identity for active spans (`_active_spans_by_id`, `_active_otel_spans_by_id`). Internal diagnostic orchestrators hold `SpanRecord` handles, preventing overwrite collisions when multiple concurrent or repeated spans share identical names. Secondary LIFO name index (`_active_span_ids_by_name`) preserves backward compatibility for string lookups.
+
 ---
 
 ## 25. OpenTelemetry Mode A Inbound Telemetry Contract (V1.0.4 Contract)
@@ -693,14 +702,22 @@ EvidenceTool produces distributed OpenTelemetry traces mapping its internal oper
 1. **Separation of Availability and Health**: Monitoring backend unavailability (`TELEMETRY_METRICS_UNAVAILABLE`) MUST be strictly separated from service health situations (`SERVICE_ERROR_RATE_EXCEEDED`).
 2. **UNKNOWN is Not FAIL**: If a metrics or traces backend times out, is unreachable, or returns a transport failure, the affected observations evaluate to `UNKNOWN` (`transport_status="failed"`). Telemetry uncertainty **NEVER** implicitly converts to `FAIL`, preventing false positive alerts or misattributed service blame.
 
-### 25.5 Telemetry Resource-Bound Invariant
+### 25.5 Telemetry Resource-Bound Invariant (A1 & A2 Hardening Addendum)
 1. **Multi-Dimensional Budget**: Telemetry collection is governed by a strict `TelemetryBudget`:
-   - `max_requests`: limits total HTTP queries per collection pass (default 5-10).
-   - `max_response_bytes`: bounds stream reading to 1MB.
-   - `connect_timeout` & `read_timeout`: bounded network socket timeouts.
-   - `max_query_length`: bounds query string length (default 1024 characters).
-   - `max_lookback_seconds`: bounds trace search time window.
+   - `max_requests`: limits total HTTP queries per collection pass (default 10, hard ceiling 50).
+   - `max_response_bytes`: bounds stream reading to 1MB (hard ceiling 10MB).
+   - `connect_timeout` & `read_timeout`: bounded network socket timeouts (hard ceilings 5.0s and 10.0s).
+   - `max_query_length`: bounds query string length (default 1024, hard ceiling 4096 characters).
+   - `max_lookback_seconds`: bounds trace search time window (default 3600s, hard ceiling 86400s / 24h).
+   - `max_result_items`: bounds metric items processed (default 100, hard ceiling 1000).
+   - `max_traces`: bounds traces processed (default 50, hard ceiling 200).
+   - `max_spans_per_trace`: bounds CPU iteration per trace (default 500, hard ceiling 2000).
 2. **Pre-Deserialization Stream Bounding**: Socket streams MUST be bounded during read (`read(limit + 1)`). If the payload exceeds the budget, the stream is aborted immediately before invoking JSON deserialization (`json.loads()`).
+3. **Hard Budget Ceilings Anti-Bypass Invariant (A1)**: All inputs from `ProviderContext` are validated and clamped against immutable internal limits (`HARD_BUDGET_CEILINGS`) to prevent configuration bypass or resource exhaustion.
+4. **Deterministic Lookback Specification (A2)**:
+   - Valid lookback $\le$ `max_lookback_seconds` is preserved verbatim.
+   - Valid lookback $>$ `max_lookback_seconds` is clamped to the budget ceiling and records audit metadata (`requested_lookback`, `effective_lookback`, `lookback_clamped: true`).
+   - Invalid lookback syntax evaluates fail-closed to `UNKNOWN` (`transport_status="failed"`). Silent 5m fallback is strictly prohibited.
 
 ### 25.6 Hybrid Causality Invariant (Mode C Bridge)
 1. **Surface Symptoms vs. Physical Root Causes**: Inbound telemetry signals (e.g. `otel.http_error_rate`, `otel.p99_latency_ms`) are modeled in the causal engine as surface symptoms (`is_surface_symptom: true`), not as physical root causes.

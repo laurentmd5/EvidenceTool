@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime, timezone
 from urllib.parse import quote_plus
 
@@ -24,8 +25,8 @@ from evidencetool.models.observation import Observation
 from evidencetool.providers.base import ProviderContext
 from evidencetool.providers.registry import ProviderTrust, provider
 from evidencetool.providers.telemetry_client import (
-    TelemetryBudget,
     TelemetryHTTPClient,
+    build_clamped_telemetry_budget,
     sanitize_error,
     sanitize_url,
 )
@@ -33,10 +34,79 @@ from evidencetool.providers.telemetry_client import (
 logger = logging.getLogger(__name__)
 
 COLLECTOR = "otel_provider"
+_LOOKBACK_RE = re.compile(r"^([0-9]+)\s*([smhd])$", re.IGNORECASE)
 
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _parse_lookback(
+    raw_lookback: str, max_allowed_seconds: int
+) -> tuple[int, str, bool, str | None]:
+    """
+    Parses a lookback string (e.g. '300s', '5m', '1h', '2d') into seconds.
+    Returns (seconds, effective_lookback_str, is_clamped, error_message).
+    """
+    if not isinstance(raw_lookback, str) or not raw_lookback.strip():
+        return 0, str(raw_lookback), False, "Lookback string cannot be empty."
+
+    cleaned = raw_lookback.strip()
+    match = _LOOKBACK_RE.match(cleaned)
+    if not match:
+        return (
+            0,
+            cleaned,
+            False,
+            f"Invalid lookback specification '{cleaned}': must be a positive integer followed by s, m, h, or d (e.g. '5m', '1h').",
+        )
+
+    val_str, unit_str = match.groups()
+    try:
+        val = int(val_str)
+    except ValueError:
+        return 0, cleaned, False, f"Invalid lookback value '{val_str}'."
+
+    unit_lower = unit_str.lower()
+    multipliers = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+    multiplier = multipliers.get(unit_lower, 1)
+    seconds = val * multiplier
+
+    if seconds <= 0:
+        return 0, cleaned, False, f"Lookback must be greater than zero, got '{cleaned}'."
+
+    if seconds > max_allowed_seconds:
+        effective_str = f"{max_allowed_seconds}s"
+        return max_allowed_seconds, effective_str, True, None
+
+    return seconds, cleaned, False, None
+
+
+def _is_error_span(span: object) -> bool:
+    if not isinstance(span, dict):
+        return False
+    tags = span.get("tags")
+    if not isinstance(tags, list):
+        return False
+    for tag in tags:
+        if isinstance(tag, dict) and tag.get("key") == "error" and str(tag.get("value")).lower() == "true":
+            return True
+    return False
+
+
+def _count_trace_errors(traces: list[object], max_spans_per_trace: int) -> int:
+    """Counts error spans in a list of traces, bounded by max_spans_per_trace."""
+    error_count = 0
+    for trace in traces:
+        if not isinstance(trace, dict):
+            continue
+        raw_spans = trace.get("spans")
+        if not isinstance(raw_spans, list):
+            continue
+        for span in raw_spans[:max_spans_per_trace]:
+            if _is_error_span(span):
+                error_count += 1
+    return error_count
 
 
 @provider("otel", trust=ProviderTrust.BUILTIN)
@@ -51,9 +121,14 @@ class OTelProvider:
         capabilities = context.execution.capabilities
         host = context.get("host", "")
 
-        budget = TelemetryBudget(
-            max_requests=int(context.get("max_telemetry_requests", "10")),
+        budget = build_clamped_telemetry_budget(
+            max_requests=context.get("max_telemetry_requests") or context.get("max_requests", "10"),
             connect_timeout=capabilities.network.timeout_seconds if capabilities else 2.0,
+            read_timeout=context.get("telemetry_read_timeout") or context.get("read_timeout", "3.0"),
+            max_lookback_seconds=context.get("max_telemetry_lookback_seconds") or context.get("max_lookback_seconds", "3600"),
+            max_result_items=context.get("max_telemetry_result_items") or context.get("max_result_items", "100"),
+            max_traces=context.get("max_telemetry_traces") or context.get("max_traces", "50"),
+            max_spans_per_trace=context.get("max_telemetry_spans_per_trace") or context.get("max_spans_per_trace", "500"),
         )
         client = TelemetryHTTPClient(capabilities=capabilities, budget=budget)
 
@@ -212,6 +287,10 @@ class OTelProvider:
             if data.get("status") != "success":
                 return None, f"Prometheus query failed: {data.get('error', 'unknown error')}"
             results = data.get("data", {}).get("result", [])
+            if not isinstance(results, list):
+                results = []
+            # Bounded Metric Results Processing (A1, A2)
+            results = results[: client.budget.max_result_items]
             if not results:
                 return None, "No data returned for metric query"
             raw_val = results[0].get("value", [None, None])[1]
@@ -325,10 +404,38 @@ class OTelProvider:
         lookback: str,
         host: str | None,
     ) -> Observation:
+        lookback_sec, effective_lookback, is_clamped, lookback_err = _parse_lookback(
+            lookback, client.budget.max_lookback_seconds
+        )
+        if lookback_err is not None:
+            sanitized = sanitize_url(traces_endpoint)
+            method = f"traces_search({sanitized}, service={service_name}, lookback={lookback}, error=true)"
+            return Observation(
+                id="otel.error_spans_count",
+                source="otel",
+                category="trace",
+                collector=COLLECTOR,
+                method=method,
+                value={
+                    "status": "UNKNOWN",
+                    "service": service_name,
+                    "requested_lookback": lookback,
+                    "error": lookback_err,
+                },
+                message=f"Traces query rejected due to invalid lookback for '{service_name}': {lookback_err}",
+                observed_at=_now(),
+                host=host,
+                transport_status="failed",
+            )
+
         sanitized = sanitize_url(traces_endpoint)
-        method = f"traces_search({sanitized}, service={service_name}, lookback={lookback}, error=true)"
+        method = f"traces_search({sanitized}, service={service_name}, lookback={effective_lookback}, error=true)"
         error_tag_param = quote_plus('{"error":"true"}')
-        path = f"/api/traces?service={quote_plus(service_name)}&tags={error_tag_param}&limit={client.budget.max_traces}&lookback={quote_plus(lookback)}"
+        url_limit = min(client.budget.max_traces, 100)
+        path = (
+            f"/api/traces?service={quote_plus(service_name)}&tags={error_tag_param}"
+            f"&limit={url_limit}&lookback={quote_plus(effective_lookback)}"
+        )
 
         status_code, body, error = client.get(traces_endpoint, path)
 
@@ -340,7 +447,13 @@ class OTelProvider:
                 category="trace",
                 collector=COLLECTOR,
                 method=method,
-                value={"status": "UNKNOWN", "service": service_name, "error": err_msg},
+                value={
+                    "status": "UNKNOWN",
+                    "service": service_name,
+                    "requested_lookback": lookback,
+                    "effective_lookback": effective_lookback,
+                    "error": err_msg,
+                },
                 message=f"Traces query inconclusive for '{service_name}': {err_msg}",
                 observed_at=_now(),
                 host=host,
@@ -349,13 +462,12 @@ class OTelProvider:
 
         try:
             data = json.loads(body.decode("utf-8"))
-            traces = data.get("data", [])
-            if not isinstance(traces, list):
-                traces = []
-            error_count = sum(
-                sum(1 for span in trace.get("spans", []) if any(tag.get("key") == "error" and str(tag.get("value")).lower() == "true" for tag in span.get("tags", [])))
-                for trace in traces
-            )
+            raw_traces = data.get("data", [])
+            if not isinstance(raw_traces, list):
+                raw_traces = []
+            # Bounded Traces Processing (A1, A2)
+            traces = raw_traces[: client.budget.max_traces]
+            error_count = _count_trace_errors(traces, client.budget.max_spans_per_trace)
 
             return Observation(
                 id="otel.error_spans_count",
@@ -366,11 +478,14 @@ class OTelProvider:
                 value={
                     "count": error_count,
                     "unit": "count",
-                    "window": lookback,
+                    "window": effective_lookback,
+                    "requested_lookback": lookback,
+                    "effective_lookback": effective_lookback,
+                    "lookback_clamped": is_clamped,
                     "service": service_name,
                     "query": "error=true",
                 },
-                message=f"Trace search for '{service_name}' found {error_count} error spans in last {lookback}",
+                message=f"Trace search for '{service_name}' found {error_count} error spans in last {effective_lookback}",
                 observed_at=_now(),
                 host=host,
             )
@@ -381,7 +496,13 @@ class OTelProvider:
                 category="trace",
                 collector=COLLECTOR,
                 method=method,
-                value={"status": "UNKNOWN", "service": service_name, "error": str(exc)},
+                value={
+                    "status": "UNKNOWN",
+                    "service": service_name,
+                    "requested_lookback": lookback,
+                    "effective_lookback": effective_lookback,
+                    "error": str(exc),
+                },
                 message=f"Failed to parse traces response for '{service_name}': {exc}",
                 observed_at=_now(),
                 host=host,

@@ -791,4 +791,101 @@ def test_pure_python_fallback_without_otel(tmp_path):
             assert saved["root_span"]["name"] == "evidencetool.diagnosis"
 
 
+def test_duplicate_span_names_with_handles():
+    """Verify B2: duplicate span names are resolved uniquely via SpanRecord handle without collision."""
+    tracer = DiagnosisTracer(service_name="test-b2")
+    tracer.start_root_span("svc", "action")
+
+    span_a = tracer.start_span("worker.step")
+    span_b = tracer.start_span("worker.step")
+
+    assert span_a.span_id != span_b.span_id
+    assert span_a.name == span_b.name
+
+    # End span_a first with specific attribute
+    tracer.end_span(span_a, status="OK", attributes={"step_num": 1})
+    # End span_b second with specific attribute
+    tracer.end_span(span_b, status="OK", attributes={"step_num": 2})
+
+    trace = tracer.finish()
+    steps = [s for s in trace.spans if s.name == "worker.step"]
+    assert len(steps) == 2
+    assert steps[0].span_id == span_a.span_id
+    assert steps[0].attributes["step_num"] == 1
+    assert steps[1].span_id == span_b.span_id
+    assert steps[1].attributes["step_num"] == 2
+
+
+def test_b1_mock_otlp_collector_http_500_resilience():
+    """Verify B1: OTLP collector returning HTTP 500 does NOT crash diagnosis or tracer.finish()."""
+    tracer = DiagnosisTracer(endpoint="http://collector.example.com:4318")
+    tracer.start_root_span("svc", "restart")
+    span = tracer.start_span("worker")
+    tracer.end_span(span)
+
+    class Mock500Response:
+        status = 500
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            pass
+
+    with patch("urllib.request.urlopen", return_value=Mock500Response()):
+        trace = tracer.finish()
+
+    assert trace is not None
+    assert trace.root_span.status == "OK"
+
+
+def test_b1_mock_otlp_collector_hanging_connection():
+    """Verify B1: collector network hang/timeout is caught and does not block diagnosis."""
+    tracer = DiagnosisTracer(endpoint="http://collector.example.com:4318")
+    tracer._standalone_provider = None  # test native pure-python HTTP exporter path
+    tracer.start_root_span("svc", "restart")
+
+    timeout_called_with = None
+
+    def mock_urlopen(req, timeout=None):
+        nonlocal timeout_called_with
+        timeout_called_with = timeout
+        raise TimeoutError("timed out")
+
+    with patch("urllib.request.urlopen", side_effect=mock_urlopen):
+        trace = tracer.finish()
+
+    assert trace is not None
+    from evidencetool.observability.tracing import OTLP_EXPORT_TIMEOUT_SECONDS
+    assert timeout_called_with == OTLP_EXPORT_TIMEOUT_SECONDS
+
+
+def test_b1_exporter_exception_isolated():
+    """Verify B1 Invariant: Exporter Failure != Diagnostic Failure."""
+    tracer = DiagnosisTracer(endpoint="http://collector.example.com:4318")
+    tracer._standalone_provider = None
+    tracer.start_root_span("svc", "restart")
+
+    with patch("urllib.request.urlopen", side_effect=RuntimeError("Arbitrary network crash")):
+        trace = tracer.finish()
+
+    assert trace is not None
+    assert trace.root_span.name == "evidencetool.diagnosis"
+
+
+def test_b1_flush_timeout_bounded():
+    """Verify B1: force_flush receives bounded timeout_millis."""
+    from unittest.mock import Mock
+
+    from evidencetool.observability.tracing import OTLP_FLUSH_TIMEOUT_MILLIS
+    tracer = DiagnosisTracer()
+    mock_provider = Mock()
+    tracer._standalone_provider = mock_provider
+    tracer.start_root_span("svc", "restart")
+    tracer.finish()
+
+    mock_provider.force_flush.assert_called_once_with(timeout_millis=OTLP_FLUSH_TIMEOUT_MILLIS)
+
+
+
 

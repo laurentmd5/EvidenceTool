@@ -313,22 +313,38 @@ Tout dépassement de quota (`max_probes`) déclenche un arrêt immédiat avec re
 
 ---
 
-## 24. Tracing Outbound OpenTelemetry Mode B (V1.0.3)
+## 24. Tracing Outbound OpenTelemetry Mode B (V1.0.3 / Hardening V1.0.7)
 
 1. **Indépendance de l'Observabilité** : Les traces décrivent le raisonnement opérationnel sans jamais influencer la décision.
 2. **Non-Interférence Hôte** : Utilise le `TracerProvider` existant de l'hôte sans le réinitialiser.
 3. **Non-Authentification** : Le W3C `traceparent` est purement un identifiant de corrélation, sans valeur d'autorisation.
 4. **Sémantique de Statut de Span** : Un `BLOCK` ou `HUMAN_REVIEW` est une décision de gouvernance normale (`StatusCode.OK`). `StatusCode.ERROR` est réservé aux pannes d'exécution ou d'intégrité.
 5. **Repli Zéro-Dépendance** : Fonctionne en Python standard pur sans exiger le SDK OTel externe.
+6. **Traitement Asynchrone Non-Bloquant (B1)** : Utilise `BatchSpanProcessor` (`max_queue_size=512`). La fin d'une span (`end_span()`) met en file d'attente mémoire et ne bloque jamais de manière synchrone sur le réseau.
+7. **Double Budgets Temporels Bornés (B1)** :
+   - `OTLP_EXPORT_TIMEOUT_SECONDS = 2.0` : Délai d'expiration réseau/transport pour l'export OTLP (SDK et fallback pur Python).
+   - `OTLP_FLUSH_TIMEOUT_MILLIS = 2000` : Délai maximal de purge (`force_flush`) lors de la finalisation du diagnostic (`finish()`).
+8. **Invariant Défaillance d'Export $\neq$ Défaillance de Diagnostic (B1)** : Tout échec d'exportation vers le collecteur (HTTP 500, coupure réseau, timeout) n'interrompt ni ne corrompt le diagnostic.
+9. **Identité Canonique des Spans (B2)** : `span_id` unique constitue l'identité primaire des spans actives (`_active_spans_by_id`). Les orchestrateurs internes manipulent des descripteurs `SpanRecord`, éliminant tout risque de collision ou d'écrasement en cas de noms identiques répétés.
 
 ---
 
-## 25. Télémétrie Inbound OpenTelemetry Mode A (V1.0.4)
+## 25. Télémétrie Inbound OpenTelemetry Mode A (V1.0.4 / Hardening V1.0.7)
 
 1. Ingestion externe non-intrusive depuis Prometheus et Tempo/Jaeger.
 2. Le provider `otel` observe et normalise les valeurs brutes ; l'évaluateur de politique applique les seuils SLA.
-3. Client HTTP sécurisé : interdiction stricte des redirections 3xx (protection anti-SSRF), blocage d'adresses de métadonnées cloud (`169.254.169.254`), charges utiles bornées à 1 Mo en streaming.
+3. Client HTTP sécurisé : interdiction stricte des redirections 3xx (protection anti-SSRF), blocage d'adresses de métadonnées cloud (`169.254.169.254`), charges utiles bornées avant désérialisation.
 4. Indépendance de la disponibilité de la télémétrie : une coupure de Prometheus produit un statut `UNKNOWN` technique, jamais une fausse panne applicative (`UNKNOWN ≠ FAIL`).
+5. **Application Exhaustive du Budget au Runtime (A1)** : Toutes les dimensions déclarées de `TelemetryBudget` (`read_timeout`, `max_lookback_seconds`, `max_result_items`, `max_traces`, `max_spans_per_trace`) sont appliquées de manière effective au runtime :
+   - Timeout de lecture sur socket réseau (`read_timeout`).
+   - Saucissonnage strict des résultats vectoriels Prometheus (`max_result_items`).
+   - Bornage des requêtes de traces distribuées (`limit=min(max_traces, 100)`) et découpage (`max_traces`).
+   - Itération CPU strictement bornée sur les spans d'une trace (`max_spans_per_trace`).
+6. **Plafonds Inviolables Anti-Contournement (A1)** : Les paramètres issus de `ProviderContext` sont validés et bridés par rapport aux plafonds stricts internes (`HARD_BUDGET_CEILINGS`) pour empêcher tout déni de service par configuration.
+7. **Spécification Déterministe du Lookback (A2)** :
+   - Lookback valide $\le$ plafond : conservé tel quel.
+   - Lookback valide $>$ plafond : bridé au plafond avec métadonnées d'audit (`requested_lookback`, `effective_lookback`, `lookback_clamped: true`).
+   - Syntaxe de lookback invalide : évaluée fail-closed en `UNKNOWN` (`transport_status="failed"`). Aucun repli silencieux vers 5m n'est toléré.
 
 ---
 
