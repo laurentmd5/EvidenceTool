@@ -21,12 +21,25 @@ Tous les changements notables apportés à ce projet sont documentés dans ce fi
   - Formalisation du comportement tripartite de `REQUIRES` :
     - $B = \text{PASS} \implies A$ peut être évalué normalement.
     - $B = \text{UNKNOWN} \implies A$ bascule en `UNRESOLVED` (enregistré dans `unresolved_hypotheses` avec `missing_evidence: [B]`).
-    - $B = \text{FAIL} \implies A$ est formellement réfuté / préclu par défaillance de son prérequis et consigné dans `precluded_hypotheses`.
-- **Absence de Causalité Implicite Garanti (`C13`)** :
-  - Vérification formelle que des pannes simultanées sans relation causale déclarée dans les catalogues ne produisent aucune inférence causale (`primary_root_cause = None`, `causal_chain = []`, `status = ROOT_CAUSE_UNKNOWN`).
+- **Atteignabilité du Sous-Graphe Causal & Isolation des Symptômes (`C14`, `C19` / `H1`)** :
+  - Élimination de la boucle résiduelle ajoutant les symptômes non visités ou inatteignables à `causal_chain`.
+  - Application stricte de l'invariant d'atteignabilité : tout nœud dans `causal_chain` et `propagated_symptoms` doit appartenir au sous-graphe orienté atteignable de la cause racine primaire.
+  - Les symptômes disjoints ($S_2$) issus de composants distincts ou non confirmés ($B \longrightarrow S_2$) sont strictement isolés et ne polluent jamais l'explication de la racine $A$.
+- **Sémantique de Chemin Causal Continu & Graphe Ramifié (`C15` / `H2`)** :
+  - Formalisation de `causal_chain` comme un chemin orienté contigu $[v_0, \dots, v_k]$ où chaque transition adjacente $(v_i, v_{i+1})$ correspond à une arête directe déclarée ($v_i \longrightarrow v_{i+1}$).
+  - Dans les topologies ramifiées ($A \longrightarrow B \longrightarrow S$ et $A \longrightarrow C \longrightarrow S$), élimination des pseudo-chaînes ($[A, B, C, S]$) contenant des transitions inexistantes.
+  - Sélection déterministe privilégiant la profondeur de chaîne et respectant les priorités d'arêtes avec arbitrage sans ambiguïté.
+- **Préservation des Règles Multiples par Source (`C16` / `H3`)** :
+  - Remplacement du dictionnaire unitaire par `dict[str, list[CausalRule]]`, empêchant l'écrasement de règles lorsqu'un nœud source émet plusieurs branches ($A \longrightarrow B$ et $A \longrightarrow C$).
+  - La priorité du candidat racine évalue le maximum des priorités de ses règles sortantes. La description du candidat reflète la règle active de la branche empruntée.
+- **Validation Fail-Closed des Catalogues (`C17`, `C18` / `H4`)** :
+  - Champs obligatoires `id`, `source`, `target` et `relation` strictement imposés dans le parseur YAML.
+  - Élimination du repli silencieux vers `PROPAGATES_TO` en cas d'erreur de frappe (`PROPAGATSE_TO` lève immédiatement une `ValueError`). Les catalogues corrompus échouent à froid (*fail-closed*).
+- **Clarification du Modèle C12** :
+  - Spécification formelle que `PRECLUDED` est un résultat d'exclusion consigné dans `precluded_hypotheses` ; ce n'est pas un état de `CausalCandidateState` actif (qui demeurent `CONFIRMED`, `POSSIBLE`, `UNRESOLVED`).
 - **Suite Complète de Tests Adversaires** :
-  - Ajout de `tests/test_causality_mode_c_adversarial.py` contenant 11 tests vérifiant les scénarios C7 à C13.
-  - La suite de tests passe de 275 à **286 tests réussis à 100 %** avec typage strict (`mypy`), linter (`ruff`) et audit de sécurité (`bandit`).
+  - Ajout de 6 nouveaux scénarios adversaires (C14 à C19) dans `tests/test_causality_mode_c_adversarial.py`.
+  - La suite de tests passe de 286 à **292 tests réussis à 100 %** avec typage strict (`mypy`), linter (`ruff`) et audit de sécurité (`bandit`).
 
 ## [1.0.5] - 2026-09-18
 ### Moteur de Raisonnement Causal Hybride Mode C (Phase 2)

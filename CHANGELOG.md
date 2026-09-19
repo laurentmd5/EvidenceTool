@@ -21,12 +21,25 @@ All notable changes to this project will be documented in this file.
   - Formalized tripartite behavior of `REQUIRES`:
     - $B = \text{PASS} \implies A$ may be confirmed.
     - $B = \text{UNKNOWN} \implies A$ transitions to `UNRESOLVED` (recorded in `unresolved_hypotheses` with `missing_evidence: [B]`).
-    - $B = \text{FAIL} \implies A$ is formally refuted / precluded by prerequisite failure and added to `precluded_hypotheses`.
-- **Zero Implicit Causality Enforced (`C13`)**:
-  - Verified that concurrent failures without declared causal rules in catalogs produce zero causal inference (`primary_root_cause = None`, `causal_chain = []`, `status = ROOT_CAUSE_UNKNOWN`).
+- **Causal Subgraph Reachability & Symptom Isolation (`C14`, `C19` / `H1`)**:
+  - Eliminated fallback iteration that appended unvisited/unreachable symptoms to `causal_chain`.
+  - Enforced strict reachability invariant: every node in `causal_chain` and `propagated_symptoms` must belong to the directed reachable subgraph of the primary root cause.
+  - Disjoint symptoms ($S_2$) from unrelated or unconfirmed components ($B \longrightarrow S_2$) are completely isolated and never leak into root $A$'s explanation.
+- **Contiguous Causal Path & Branching Semantics (`C15` / `H2`)**:
+  - Formalized `causal_chain` as a single, contiguous directed path $[v_0, \dots, v_k]$ where every adjacent pair $(v_i, v_{i+1})$ has an explicit directed edge ($v_i \longrightarrow v_{i+1}$).
+  - In branching graphs ($A \longrightarrow B \longrightarrow S$ and $A \longrightarrow C \longrightarrow S$), eliminated pseudo-chains ($[A, B, C, S]$) containing non-existent transitions.
+  - Deterministic path selection prefers deeper paths and respects edge priorities with deterministic tie-breaking.
+- **Multi-Rule Source Preservation (`C16` / `H3`)**:
+  - Replaced single-rule dictionary with `dict[str, list[CausalRule]]`, preventing rule overwriting when a source node declares multiple outgoing branches ($A \longrightarrow B$ and $A \longrightarrow C$).
+  - Root candidate priority evaluates the maximum declared priority across all outgoing rules. Candidate descriptions reflect the active branch edge.
+- **Fail-Closed Catalog Validation (`C17`, `C18` / `H4`)**:
+  - Enforced mandatory non-empty `id`, `source`, `target`, and `relation` in YAML catalog loader.
+  - Eliminated silent fallback to `PROPAGATES_TO` on invalid or misspelled relations (`PROPAGATSE_TO` raises `ValueError`). Corrupted catalogs fail closed immediately.
+- **C12 Model & Contract Clarification**:
+  - Formally specified that `PRECLUDED` is an exclusion outcome recorded in `precluded_hypotheses`; it is not an active `CausalCandidateState` (active candidates remain `CONFIRMED`, `POSSIBLE`, and `UNRESOLVED`).
 - **Comprehensive Adversarial Verification Suite**:
-  - Added `tests/test_causality_mode_c_adversarial.py` containing 11 tests verifying scenarios C7 to C13.
-  - Test suite expanded from 275 to 286 tests passing 100% with strict type safety (`mypy`), linting (`ruff`), and security scanning (`bandit`).
+  - Added 6 new adversarial scenarios (C14 to C19) to `tests/test_causality_mode_c_adversarial.py`.
+  - Test suite expanded from 286 to **292 tests passing 100%** with strict type safety (`mypy`), linting (`ruff`), and security scanning (`bandit`).
 
 ## [1.0.5] - 2026-09-18
 ### Mode C Hybrid Causal Reasoning Engine (Phase 2)

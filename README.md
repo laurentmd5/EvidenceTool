@@ -215,7 +215,7 @@ EvidenceTool bridges high-level application observability with deep low-level in
 
 - **Mode A (Inbound External Telemetry)**: Ingests external Prometheus metrics and Tempo/Jaeger distributed traces via the `otel` provider. Strictly observes values and leaves threshold evaluation to declarative policies. Features SSRF protection, redirection rejection, bounded payloads, and credential sanitization.
 - **Mode B (Outbound Distributed Tracing)**: Emits structured OpenTelemetry spans for every step of the diagnostic pipeline (`provider`, `evaluation`, `correlation`, `causality`, `decision`), propagating context via W3C `traceparent` without mutating the host application's `TracerProvider`. Operates in pure Python standard library with zero external dependencies, or with official OTel SDK bindings.
-- **Mode C (Hybrid Causal Reasoning & Hardening)**: Bridges high-level surface symptoms (e.g. HTTP 503 or latency spikes) to deep native system probes (e.g. database pool exhaustion, process deadlocks, invalid TLS configs) via declarative causal graphs (`PROPAGATES_TO`, `PRECLUDES`, `REQUIRES`). Enforces cycle detection before arbitration (C7), topological completeness (C8), strict priority & tie-breaking invariants (C9, C9b), unranked ambiguity preservation (C10), subgraph uncertainty isolation (C11), prerequisite refutation (C12), and zero undeclared causality (C13). See [docs/causality/hybrid-causal-reasoning.md](docs/causality/hybrid-causal-reasoning.md).
+- **Mode C (Hybrid Causal Reasoning & Hardening)**: Bridges high-level surface symptoms (e.g. HTTP 503 or latency spikes) to deep native system probes (e.g. database pool exhaustion, process deadlocks, invalid TLS configs) via declarative causal graphs (`PROPAGATES_TO`, `PRECLUDES`, `REQUIRES`). Enforces cycle detection before arbitration (C7), topological completeness (C8), strict priority & tie-breaking invariants (C9, C9b), unranked ambiguity preservation (C10), subgraph uncertainty isolation (C11), prerequisite refutation (C12), zero undeclared causality (C13), causal subgraph reachability isolation (C14, C19), contiguous causal path semantics without branching hallucinations (C15), multi-rule source preservation (C16), and fail-closed catalog validation (C17, C18). See [docs/causality/hybrid-causal-reasoning.md](docs/causality/hybrid-causal-reasoning.md).
 
 ## OpenTelemetry Tracing (Mode B Outbound)
 
@@ -306,7 +306,7 @@ sudo usermod -aG docker evidencetool
 ## Tests & CI Verification
  
 ```bash
-# Run 286 unit and integration tests with full coverage
+# Run 292 unit and integration tests with full coverage
 pytest tests/ -v --cov=evidencetool --cov-report=term
 
 # E2E Operational Tests (Nginx Systemd on Ubuntu + Debian, and Docker scenarios)
@@ -319,7 +319,7 @@ bandit -r src/ -c pyproject.toml
 pip-audit
 ```
 
-All 286 tests pass cleanly with strict typing across 54 source files, zero linter warnings, and zero security vulnerabilities.
+All 292 tests pass cleanly with strict typing across 54 source files, zero linter warnings, and zero security vulnerabilities.
 
 ## Writing a Policy
 

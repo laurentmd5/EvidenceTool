@@ -102,8 +102,30 @@ def _detect_cycles(graph: dict[str, list[str]]) -> list[list[str]]:
     return sorted(cycles, key=lambda c: (len(c), c))
 
 
-def _find_causal_path(start: str, target: str, graph: dict[str, list[str]]) -> list[str]:
-    """Finds a shortest directed path from start to target in the graph with deterministic ordering."""
+def _is_reachable(start: str, target: str, graph: dict[str, list[str]]) -> bool:
+    """Returns True if target is reachable from start via directed edges in graph."""
+    if start == target:
+        return True
+    visited = {start}
+    queue: deque[str] = deque([start])
+    while queue:
+        curr = queue.popleft()
+        for nxt in graph.get(curr, []):
+            if nxt == target:
+                return True
+            if nxt not in visited:
+                visited.add(nxt)
+                queue.append(nxt)
+    return False
+
+
+def _find_causal_path(
+    start: str,
+    target: str,
+    graph: dict[str, list[str]],
+    rules_by_source: dict[str, list[CausalRule]] | None = None,
+) -> list[str]:
+    """Finds a shortest directed path from start to target in the graph with edge-priority and deterministic tie-breaking."""
     if start == target:
         return [start]
     visited = {start}
@@ -111,7 +133,14 @@ def _find_causal_path(start: str, target: str, graph: dict[str, list[str]]) -> l
     while queue:
         path = queue.popleft()
         node = path[-1]
-        for neighbor in sorted(graph.get(node, [])):
+
+        def _neighbor_sort_key(nxt: str) -> tuple[int, str]:
+            prio = 0
+            if rules_by_source and node in rules_by_source:
+                prio = max((r.priority for r in rules_by_source[node] if r.target == nxt), default=0)
+            return (-prio, nxt)
+
+        for neighbor in sorted(graph.get(node, []), key=_neighbor_sort_key):
             if neighbor == target:
                 return path + [neighbor]
             if neighbor not in visited:
@@ -120,26 +149,40 @@ def _find_causal_path(start: str, target: str, graph: dict[str, list[str]]) -> l
     return [start]
 
 
-def _build_causal_chain(root: str, graph: dict[str, list[str]], symptoms: list[str]) -> list[str]:
-    """Reconstructs the full causal propagation chain from root to symptoms preserving topological order."""
-    chain = [root]
-    visited = {root}
-    queue = deque([root])
+def _build_causal_chain(
+    root: str,
+    graph: dict[str, list[str]],
+    targets: set[str] | list[str],
+    rules_by_source: dict[str, list[CausalRule]] | None = None,
+) -> list[str]:
+    """
+    Reconstructs the deterministic causal path from root to the deepest reachable target symptom.
 
-    while queue:
-        curr = queue.popleft()
-        for nxt in sorted(graph.get(curr, [])):
-            if nxt not in visited:
-                visited.add(nxt)
-                chain.append(nxt)
-                queue.append(nxt)
+    Guarantees:
+      1. Every adjacent pair in the returned chain has an explicit directed edge in the graph.
+      2. Unrelated, unreachable symptoms are strictly excluded (H1).
+      3. In branching topologies, selects a single determined causal path using edge priorities and determinism (H2).
+    """
+    reachable_targets = [t for t in sorted(targets) if t != root and _is_reachable(root, t, graph)]
+    if not reachable_targets:
+        return [root]
 
-    for s in sorted(symptoms):
-        if s not in visited and s != root:
-            chain.append(s)
-            visited.add(s)
+    best_path: list[str] = []
+    for t in reachable_targets:
+        path = _find_causal_path(root, t, graph, rules_by_source)
+        if len(path) > 1 and path[-1] == t:
+            if not best_path:
+                best_path = path
+            else:
+                # Prefer deeper paths (longer cascade)
+                if len(path) > len(best_path):
+                    best_path = path
+                elif len(path) == len(best_path):
+                    # Deterministic tie-breaker
+                    if path < best_path:
+                        best_path = path
 
-    return chain
+    return best_path if best_path else [root]
 
 
 def _build_graph(prop_rules: list[CausalRule]) -> tuple[
@@ -268,7 +311,7 @@ def _evaluate_candidate(
     graph: dict[str, list[str]],
     precluded_set: set[str],
     requires_rules: dict[str, list[CausalRule]],
-    rule_by_source: dict[str, CausalRule],
+    rules_by_source: dict[str, list[CausalRule]],
     evidence_by_id: dict[str, Evidence],
     matched_situations: set[str],
     eval_by_sit_id: dict[str, Any],
@@ -276,18 +319,19 @@ def _evaluate_candidate(
     if cand_id in precluded_set:
         return None
 
-    path: list[str] = []
-    for t in targets:
-        p = _find_causal_path(cand_id, t, graph)
-        if len(p) > 1 or (len(p) == 1 and p[0] == t):
-            path = p
-            break
+    cand_rules = rules_by_source.get(cand_id, [])
+    path = _build_causal_chain(cand_id, graph, targets, rules_by_source)
     if not path:
         path = [cand_id]
 
-    cand_rule = rule_by_source.get(cand_id)
+    active_rule: CausalRule | None = None
+    if len(path) > 1:
+        active_rule = next((r for r in cand_rules if r.target == path[1]), cand_rules[0] if cand_rules else None)
+    elif cand_rules:
+        active_rule = cand_rules[0]
+
     external_unresolved, is_refuted = _check_requires_and_conditions(
-        cand_id, requires_rules, cand_rule, evidence_by_id
+        cand_id, requires_rules, active_rule, evidence_by_id
     )
     if is_refuted:
         precluded_set.add(cand_id)
@@ -314,7 +358,7 @@ def _evaluate_candidate(
         state=cand_state,
         causal_path=path,
         missing_evidence=missing_all,
-        description=cand_rule.description if cand_rule else "",
+        description=active_rule.description if active_rule else "",
     )
 
 
@@ -322,14 +366,14 @@ def _arbitrate_candidates(
     candidates: list[CausalCandidate],
     graph: dict[str, list[str]],
     reverse_graph: dict[str, list[str]],
-    propagated_symptoms: list[str],
-    rule_by_source: dict[str, CausalRule],
+    targets: set[str],
+    rules_by_source: dict[str, list[CausalRule]],
 ) -> tuple[str | None, CausalityStatus, list[str], list[CausalCandidate]]:
     confirmed = [c for c in candidates if c.state == CausalCandidateState.CONFIRMED]
 
     if len(confirmed) == 1:
         primary = confirmed[0].id
-        return primary, CausalityStatus.ROOT_CAUSE_IDENTIFIED, _build_causal_chain(primary, graph, propagated_symptoms), candidates
+        return primary, CausalityStatus.ROOT_CAUSE_IDENTIFIED, _build_causal_chain(primary, graph, targets, rules_by_source), candidates
 
     if len(confirmed) > 1:
         confirmed_ids = {c.id for c in confirmed}
@@ -339,17 +383,17 @@ def _arbitrate_candidates(
         ]
         if len(roots) == 1:
             primary = roots[0].id
-            return primary, CausalityStatus.ROOT_CAUSE_IDENTIFIED, _build_causal_chain(primary, graph, propagated_symptoms), candidates
+            return primary, CausalityStatus.ROOT_CAUSE_IDENTIFIED, _build_causal_chain(primary, graph, targets, rules_by_source), candidates
 
         if roots:
             priorities = [
-                (rule_by_source[c.id].priority if c.id in rule_by_source else 0)
+                max((r.priority for r in rules_by_source.get(c.id, [])), default=0)
                 for c in roots
             ]
             max_prio = max(priorities)
             prio_cands = [
                 c for c in roots
-                if (rule_by_source[c.id].priority if c.id in rule_by_source else 0) == max_prio
+                if max((r.priority for r in rules_by_source.get(c.id, [])), default=0) == max_prio
             ]
             # C9: single highest priority candidate wins
             # C9b: if multiple candidates share the exact same max priority, do NOT tie-break!
@@ -358,7 +402,7 @@ def _arbitrate_candidates(
                 return (
                     primary,
                     CausalityStatus.ROOT_CAUSE_IDENTIFIED,
-                    _build_causal_chain(primary, graph, propagated_symptoms),
+                    _build_causal_chain(primary, graph, targets, rules_by_source),
                     candidates,
                 )
 
@@ -398,12 +442,12 @@ def reconstruct_causality(
 
     prop_rules: list[CausalRule] = []
     requires_rules: dict[str, list[CausalRule]] = defaultdict(list)
-    rule_by_source: dict[str, CausalRule] = {}
+    rules_by_source: dict[str, list[CausalRule]] = defaultdict(list)
 
     for rule in causal_rules:
         if rule.relation in (CausalRelationType.PROPAGATES_TO, CausalRelationType.TRIGGERS):
             prop_rules.append(rule)
-            rule_by_source[rule.source] = rule
+            rules_by_source[rule.source].append(rule)
         elif rule.relation == CausalRelationType.REQUIRES:
             requires_rules[rule.source].append(rule)
 
@@ -446,7 +490,7 @@ def reconstruct_causality(
             graph,
             precluded_set,
             requires_rules,
-            rule_by_source,
+            rules_by_source,
             evidence_by_id,
             matched_situations,
             eval_by_sit_id,
@@ -457,15 +501,23 @@ def reconstruct_causality(
                 unresolved_hypotheses.append(cand.id)
 
     primary, status, chain, final_candidates = _arbitrate_candidates(
-        candidates, graph, reverse_graph, propagated_symptoms, rule_by_source
+        candidates, graph, reverse_graph, targets, rules_by_source
     )
+
+    if primary:
+        effective_symptoms = [
+            s for s in propagated_symptoms
+            if s != primary and _is_reachable(primary, s, graph)
+        ]
+    else:
+        effective_symptoms = propagated_symptoms
 
     return CausalExplanation(
         status=status,
         primary_root_cause=primary,
         target_situation=target_situation,
         causal_chain=chain,
-        propagated_symptoms=propagated_symptoms,
+        propagated_symptoms=effective_symptoms,
         precluded_hypotheses=sorted(precluded_set),
         unresolved_hypotheses=sorted(set(unresolved_hypotheses)),
         candidate_causes=final_candidates,

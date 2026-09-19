@@ -26,15 +26,30 @@ def _parse_conditions(cond_raw: object) -> dict[str, str]:
 
 
 def _parse_rule(item: dict[str, object]) -> CausalRule:
-    rule_id = str(item.get("id", ""))
-    source = str(item.get("source", ""))
-    target = str(item.get("target", ""))
-    rel_str = str(item.get("relation", "PROPAGATES_TO")).upper()
+    rule_id = str(item.get("id", "")).strip()
+    if not rule_id:
+        raise ValueError("Invalid causal rule: 'id' is mandatory and cannot be empty.")
 
+    source = str(item.get("source", "")).strip()
+    if not source:
+        raise ValueError(f"Invalid causal rule '{rule_id}': 'source' is mandatory and cannot be empty.")
+
+    target = str(item.get("target", "")).strip()
+    if not target:
+        raise ValueError(f"Invalid causal rule '{rule_id}': 'target' is mandatory and cannot be empty.")
+
+    rel_raw = item.get("relation")
+    if not rel_raw:
+        raise ValueError(f"Invalid causal rule '{rule_id}': 'relation' is mandatory and cannot be empty.")
+
+    rel_str = str(rel_raw).strip().upper()
     try:
         relation = CausalRelationType(rel_str)
     except ValueError:
-        relation = CausalRelationType.PROPAGATES_TO
+        valid_rels = [r.value for r in CausalRelationType]
+        raise ValueError(
+            f"Invalid causal relation '{rel_str}' in rule '{rule_id}'. Valid relations are: {valid_rels}"
+        )
 
     conditions = _parse_conditions(item.get("conditions", {}))
 

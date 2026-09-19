@@ -125,10 +125,25 @@ Candidates with default unranked priority (`priority: 0`) are preserved without 
 If a required prerequisite probe is unavailable or `UNKNOWN`, the dependent hypothesis is classified as `UNRESOLVED`.
 
 ### C12 — `REQUIRES` + `FAIL` $\implies$ `PRECLUDED`
-If an indispensable prerequisite probe fails, the dependent hypothesis is explicitly refuted, added to `precluded_hypotheses`, and disqualified.
+If an indispensable prerequisite probe fails, the dependent hypothesis is explicitly refuted, added to `precluded_hypotheses`, and disqualified. Note that `PRECLUDED` is an exclusion outcome recorded in `precluded_hypotheses`; it is not an active `CausalCandidateState` (active candidates remain `CONFIRMED`, `POSSIBLE`, and `UNRESOLVED`).
 
 ### C13 — Disjoint Signals Yield Zero Causality
 Unconnected failing probes across separate domains produce `ROOT_CAUSE_UNKNOWN` and empty causal chains.
+
+### C14 — Disjoint Causal Subgraph Isolation (H1)
+Every node appearing in `causal_chain` or `propagated_symptoms` must strictly belong to the directed reachable subgraph of the primary root cause. Symptoms belonging to unrelated or unconfirmed components never leak into the root explanation.
+
+### C15 — Contiguous Causal Path & Branching Semantics (H2)
+`causal_chain` represents a single, contiguous directed path $[v_0, v_1, \dots, v_k]$ where every adjacent pair $(v_i, v_{i+1})$ has an explicit edge $v_i \longrightarrow v_{i+1}$. In branching graphs ($A \longrightarrow B \longrightarrow S$ and $A \longrightarrow C \longrightarrow S$), pseudo-chains like $[A, B, C, S]$ (containing non-existent transitions) are strictly prohibited. A single deterministic path is chosen via edge priority, path depth, and tie-breaking.
+
+### C16 — Multi-Rule Source Preservation (H3)
+Multiple propagation rules declared from the same source node ($A \longrightarrow B$ and $A \longrightarrow C$) are preserved without overwriting. Root candidate priority evaluates the maximum priority declared across all its outgoing rules.
+
+### C17 & C18 — Fail-Closed Catalog Validation (H4)
+The causal catalog loader enforces mandatory non-empty `id`, `source`, `target`, and `relation`. Typos (e.g. `PROPAGATSE_TO`) immediately fail closed with a `ValueError`. Silent fallback to default relations is strictly forbidden.
+
+### C19 — Branching with Unrelated External Symptoms (H1 + H2)
+When branching topologies coexist with unrelated external symptoms, reachability guarantees that only nodes on the active path to reachable symptoms are included. External symptoms are completely excluded.
 
 ---
 

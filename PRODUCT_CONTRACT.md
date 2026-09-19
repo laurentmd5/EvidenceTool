@@ -745,7 +745,7 @@ The engine evaluates three fundamental causal relations:
 3. **`REQUIRES`** ($A \xleftarrow{\text{req}} B$): Assertion of hypothesis $A$ strictly requires verification of prerequisite evidence or condition $B$:
    - **Prerequisite Satisfied ($B = \text{PASS}$)**: Hypothesis $A$ may be confirmed if its own failure signature is satisfied.
    - **Prerequisite Ambiguous ($B = \text{UNKNOWN}$ — C11)**: Hypothesis $A$ cannot be confirmed or refuted; it transitions to `UNRESOLVED` with `missing_evidence: [B]` and is recorded in `unresolved_hypotheses`.
-   - **Prerequisite Failed ($B = \text{FAIL}$ — C12)**: The indispensable prerequisite has failed, formally refuting hypothesis $A$. Hypothesis $A$ transitions to **`PRECLUDED`** and is recorded in `precluded_hypotheses`.
+   - **Prerequisite Failed ($B = \text{FAIL}$ — C12)**: The indispensable prerequisite has failed, formally refuting hypothesis $A$. Hypothesis $A$ transitions to **`PRECLUDED`** and is recorded in `precluded_hypotheses`. `PRECLUDED` is an exclusion outcome and is represented in `precluded_hypotheses`; it is not an active `CausalCandidateState` (active candidates remain `CONFIRMED`, `POSSIBLE`, and `UNRESOLVED`).
 
 ### 26.6 Causal Explanation & Provenance Schema
 Diagnostic results serialize the deterministic causal reasoning according to `schemas/diagnosis-result.schema.json`:
@@ -773,4 +773,20 @@ Diagnostic results serialize the deterministic causal reasoning according to `sc
 For any multi-hop causal propagation path ($A \longrightarrow B \longrightarrow C \longrightarrow D \longrightarrow S$):
 1. **Node Completeness**: Every intermediate causal hop must be preserved; no node may be omitted from `causal_chain`.
 2. **Strict Topological Ordering**: The ordered sequence in `causal_chain` must strictly mirror the declared directed edges ($[A, B, C, D, S]$). Arbitrary permutations (such as $[A, C, B, D, S]$) are strictly prohibited.
+
+### 26.9 Causal Subgraph Isolation Invariant (C14, C19 / H1)
+1. **Reachability Strictness**: Every node appearing in `causal_chain` or `propagated_symptoms` MUST belong strictly to the directed reachable subgraph of the primary root cause.
+2. **Disjoint Symptom Immunity**: If an observed symptom $S_2$ belongs to a disjoint causal component or an unconfirmed root $B$ ($B \longrightarrow S_2$), and root $A$ is identified ($A \longrightarrow S_1$), $S_2$ and $B$ MUST NEVER appear in $A$'s `causal_chain` or `propagated_symptoms`. Fallback iteration appending unvisited symptoms is strictly prohibited.
+
+### 26.10 Contiguous Causal Path & Branching Semantics Invariant (C15 / H2)
+1. **Contiguous Directed Path**: `causal_chain` represents a single, valid, contiguous directed path $[v_0, v_1, \dots, v_k]$ where every adjacent pair $(v_i, v_{i+1})$ is an explicit directed edge declared in the catalog ($v_i \longrightarrow v_{i+1}$).
+2. **Branching Graph Disambiguation**: In branching topologies (e.g. $A \longrightarrow B \longrightarrow S$ and $A \longrightarrow C \longrightarrow S$), linearized node combinations that contain non-existent transitions (e.g. $[A, B, C, S]$ where $B \longrightarrow C$ does not exist) are strictly forbidden. The engine selects a single valid path deterministically using edge priorities, path depth, and deterministic tie-breaking.
+
+### 26.11 Multi-Rule Source Preservation Invariant (C16 / H3)
+1. **No Rule Overwriting**: Declarative causal catalogs allow a single source node to originate multiple distinct propagation rules ($A \longrightarrow B$ and $A \longrightarrow C$). All rules MUST be preserved within `dict[str, list[CausalRule]]`.
+2. **Candidate Multi-Rule Evaluation**: Candidate priority reflects the maximum priority declared among all its outgoing propagation rules. The candidate's descriptive metadata reflects the specific active rule governing the traversed edge.
+
+### 26.12 Fail-Closed Catalog Validation Invariant (C17, C18 / H4)
+1. **Mandatory Schema Fields**: Every causal rule must declare non-empty `id`, `source`, `target`, and `relation`. Omission or empty strings raise a `ValueError` during loading.
+2. **Strict Relation Parsing**: Any unrecognized or malformed relation type (e.g. typos like `PROPAGATSE_TO`) MUST fail closed by raising a `ValueError`. Silent fallback to `PROPAGATES_TO` is strictly prohibited. Corrupted catalogs must never execute.
 

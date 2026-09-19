@@ -125,10 +125,25 @@ Les candidats sans priorité déclarée (`priority: 0`) sont préservés sans é
 Si une sonde prérequise est indisponible ou `UNKNOWN`, l'hypothèse dépendante est rétrogradée en `UNRESOLVED`.
 
 ### C12 — `REQUIRES` + `FAIL` $\implies$ `PRECLUDED`
-Si une sonde prérequise indispensable échoue, l'hypothèse dépendante est explicitement réfutée, ajoutée à `precluded_hypotheses` et disqualifiée.
+Si une sonde prérequise indispensable échoue, l'hypothèse dépendante est explicitement réfutée, ajoutée à `precluded_hypotheses` et disqualifiée. À noter que `PRECLUDED` est un statut d'exclusion consigné dans `precluded_hypotheses` ; ce n'est pas un état de `CausalCandidateState` actif (qui demeurent `CONFIRMED`, `POSSIBLE`, `UNRESOLVED`).
 
 ### C13 — Signaux Disjoints et Causalité Nulle
 Des sondes en échec dans des domaines distincts sans lien déclaré produisent `ROOT_CAUSE_UNKNOWN` et une chaîne causale vide.
+
+### C14 — Isolation du Sous-Graphe Causal & Atteignabilité (H1)
+Tout nœud figurant dans `causal_chain` ou `propagated_symptoms` doit appartenir strictement au sous-graphe orienté atteignable de la cause racine primaire. Les symptômes issus de composants distincts ou non confirmés ne doivent jamais polluer l'explication causale de la racine.
+
+### C15 — Sémantique de Chemin Causal Continu & Graphe Ramifié (H2)
+`causal_chain` représente un chemin orienté unique, valide et contigu $[v_0, v_1, \dots, v_k]$ où chaque transition adjacente $(v_i, v_{i+1})$ correspond à une arête directe déclarée ($v_i \longrightarrow v_{i+1}$). Dans un graphe ramifié ($A \longrightarrow B \longrightarrow S$ et $A \longrightarrow C \longrightarrow S$), les concaténations de nœuds formant des transitions inexistantes ($[A, B, C, S]$) sont proscrites. Un chemin unique déterministe est sélectionné par priorité d'arêtes, profondeur de chaîne et départage déterministe.
+
+### C16 — Préservation des Règles Multiples par Source (H3)
+Plusieurs règles de propagation issues du même nœud source ($A \longrightarrow B$ et $A \longrightarrow C$) sont conservées sans écrasement. La priorité du candidat racine évalue le maximum des priorités déclarées sur ses règles sortantes.
+
+### C17 & C18 — Validation Fail-Closed des Catalogues (H4)
+Le parseur de catalogues impose obligatoirement les champs non vides `id`, `source`, `target` et `relation`. Les fautes de frappe (ex: `PROPAGATSE_TO`) lèvent immédiatement une `ValueError`. La conversion silencieuse vers une relation par défaut est strictement interdite.
+
+### C19 — Graphe Ramifié avec Symptôme Externe Disjoint (H1 + H2)
+Lorsqu'une topologie ramifiée coexiste avec des symptômes externes non reliés, l'atteignabilité garantit que seuls les nœuds du chemin causal actif vers les symptômes atteignables sont inclus. Les symptômes externes sont totalement exclus.
 
 ---
 

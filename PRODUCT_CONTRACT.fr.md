@@ -352,7 +352,7 @@ Tout dépassement de quota (`max_probes`) déclenche un arrêt immédiat avec re
    - `REQUIRES` ($A \xleftarrow{\text{req}} B$) : L'hypothèse $A$ requiert la vérification préalable de la précondition $B$ :
      - Si $B = \text{PASS}$ : $A$ peut être évalué et confirmé.
      - Si $B = \text{UNKNOWN}$ (C11) : $A$ devient `UNRESOLVED` avec `missing_evidence: [B]`, consigné dans `unresolved_hypotheses`.
-     - Si $B = \text{FAIL}$ (C12) : Le prérequis indispensable ayant échoué, l'hypothèse $A$ est formellement réfutée $\to A$ devient **`PRECLUDED`**, consigné dans `precluded_hypotheses`.
+      - Si $B = \text{FAIL}$ (C12) : Le prérequis indispensable ayant échoué, l'hypothèse $A$ est formellement réfutée $\to A$ devient **`PRECLUDED`**, consigné dans `precluded_hypotheses`. `PRECLUDED` est un statut d'exclusion consigné dans `precluded_hypotheses` ; ce n'est pas un état de `CausalCandidateState` actif (qui demeurent `CONFIRMED`, `POSSIBLE`, `UNRESOLVED`).
 6. **Schéma d'Explication Causale & Provenance** : Restitution complète dans le résultat de diagnostic (`status`, `primary_root_cause`, `causal_chain`, `propagated_symptoms`, `precluded_hypotheses`, `unresolved_hypotheses`, `candidate_causes`, `cycles_detected`).
 7. **Validation Préalable du Graphe & Gestion des Cycles (C7)** :
    - *La validation du graphe causal DOIT précéder l'arbitrage causal*. `_arbitrate_candidates()` ne doit jamais présupposer un graphe acyclique.
@@ -363,3 +363,15 @@ Tout dépassement de quota (`max_probes`) déclenche un arrêt immédiat avec re
    - Pour tout chemin multi-sauts ($A \longrightarrow B \longrightarrow C \longrightarrow D \longrightarrow S$) :
      - Intégrité : Aucun nœud intermédiaire n'est omis dans `causal_chain`.
      - Ordre topologique strict : La séquence ordonnée dans `causal_chain` respecte scrupuleusement les arêtes déclarées ($[A, B, C, D, S]$). Toute permutation arbitraire est proscrite.
+9. **Isolation du Sous-Graphe Causal & Atteignabilité (C14, C19 / H1)** :
+   - Tout nœud figurant dans `causal_chain` ou `propagated_symptoms` DOIT appartenir strictement au sous-graphe orienté atteignable depuis la cause racine primaire.
+   - Si un symptôme $S_2$ appartient à un composant disjoint ou à une racine non confirmée $B$ ($B \longrightarrow S_2$) alors que $A$ est racine identifiée ($A \longrightarrow S_1$), $S_2$ et $B$ ne doivent JAMAIS apparaître dans la `causal_chain` ou les `propagated_symptoms` de $A$. Tout ajout résiduel de symptômes non visités est proscrit.
+10. **Sémantique de Chemin Causal Continu & Graphe Ramifié (C15 / H2)** :
+    - `causal_chain` représente un chemin orienté unique, valide et contigu $[v_0, v_1, \dots, v_k]$ où chaque paire adjacente $(v_i, v_{i+1})$ correspond à une arête directe déclarée ($v_i \longrightarrow v_{i+1}$).
+    - Dans un graphe ramifié ($A \longrightarrow B \longrightarrow S$ et $A \longrightarrow C \longrightarrow S$), les concaténations de nœuds formant des transitions inexistantes ($[A, B, C, S]$ où $B \longrightarrow C$ n'existe pas) sont interdites. Le moteur sélectionne un chemin causal déterministe unique par priorité d'arêtes, profondeur de chaîne et départage déterministe.
+11. **Préservation des Règles Multiples par Source (C16 / H3)** :
+    - Les catalogues déclaratifs autorisent un nœud source à émettre plusieurs règles distinctes ($A \longrightarrow B$ et $A \longrightarrow C$). Toutes les règles DOIVENT être conservées dans `dict[str, list[CausalRule]]` sans écrasement.
+    - La priorité d'un candidat reflète le maximum des priorités déclarées sur ses règles sortantes. La description du candidat reflète la règle active régissant l'arête empruntée.
+12. **Validation Strictement Fail-Closed des Catalogues (C17, C18 / H4)** :
+    - Champs obligatoires : Toute règle causale doit obligatoirement comporter des champs non vides pour `id`, `source`, `target` et `relation`. Toute omission lève une `ValueError` au chargement.
+    - Analyse stricte des relations : Tout type de relation non reconnu (ex: faute de frappe `PROPAGATSE_TO`) DOIT échouer immédiatement en levant une `ValueError`. La conversion silencieuse vers `PROPAGATES_TO` est formellement interdite. Un catalogue corrompu ne doit jamais s'exécuter.
