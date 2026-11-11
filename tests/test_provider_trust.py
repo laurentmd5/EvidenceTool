@@ -74,8 +74,21 @@ def test_load_all_providers_does_not_auto_import_unknown_filesystem_modules(monk
 
     load_all_providers()
 
-    # Verify only the 12 verified built-in modules are imported
-    assert len(imported) == 12
+    # Verify only the 13 verified built-in modules are imported
+    assert len(imported) == 13
     assert "evidencetool.providers.malicious_unapproved" not in imported
     assert "evidencetool.providers.nginx" in imported
     assert "evidencetool.providers.redis" in imported
+    assert "evidencetool.providers.otel" in imported
+
+
+def test_otel_provider_authority_confinement():
+    """Verify OTel provider cannot register providers or alter capabilities."""
+    import evidencetool.providers.otel  # noqa: F401
+    from evidencetool.providers.registry import ProviderTrust, get_provider, get_provider_trust
+
+    p = get_provider("otel")
+    assert get_provider_trust("otel") == ProviderTrust.BUILTIN
+    # Provider cannot modify registry or capabilities
+    assert not hasattr(p, "register_provider")
+    assert not hasattr(p, "grant_capability")

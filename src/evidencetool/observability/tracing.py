@@ -26,6 +26,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -48,6 +49,7 @@ try:
     from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
     from opentelemetry.sdk.resources import Resource as OtelResource
     from opentelemetry.sdk.trace import TracerProvider as OtelTracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor as OtelBatchSpanProcessor
     from opentelemetry.sdk.trace.export import SimpleSpanProcessor as OtelSimpleSpanProcessor
 
     _HAS_OTEL_EXPORTER = True
@@ -55,10 +57,15 @@ except ImportError:
     OTLPSpanExporter = None  # type: ignore
     OtelResource = None  # type: ignore
     OtelTracerProvider = None  # type: ignore
+    OtelBatchSpanProcessor = None  # type: ignore
     OtelSimpleSpanProcessor = None  # type: ignore
     _HAS_OTEL_EXPORTER = False
 
 logger = logging.getLogger(__name__)
+
+# Bounded Telemetry Export Budgets (Mode B — B1)
+OTLP_EXPORT_TIMEOUT_SECONDS: float = 2.0
+OTLP_FLUSH_TIMEOUT_MILLIS: int = 2000
 
 
 def _random_hex(num_bytes: int) -> str:
@@ -250,6 +257,67 @@ class TraceRecord:
         }
 
 
+def _init_standalone_exporter(service_name: str, endpoint: str) -> tuple[Any, Any]:
+    """Helper to initialize standalone OpenTelemetry Batch exporter."""
+    if not (
+        _HAS_OTEL_EXPORTER
+        and OtelTracerProvider is not None
+        and OTLPSpanExporter is not None
+        and OtelResource is not None
+    ):
+        return None, None
+    try:
+        res = OtelResource.create({"service.name": service_name, "service.version": "1.0.3"})
+        provider = OtelTracerProvider(resource=res)
+        exporter = OTLPSpanExporter(endpoint=endpoint, timeout=OTLP_EXPORT_TIMEOUT_SECONDS)
+        processor: Any = None
+        if OtelBatchSpanProcessor is not None:
+            processor = OtelBatchSpanProcessor(
+                exporter,
+                export_timeout_millis=int(OTLP_EXPORT_TIMEOUT_SECONDS * 1000),
+                max_queue_size=512,
+            )
+        elif OtelSimpleSpanProcessor is not None:
+            processor = OtelSimpleSpanProcessor(exporter)
+
+        if processor is not None:
+            provider.add_span_processor(processor)
+        return provider, provider.get_tracer("evidencetool", "1.0.3")
+    except Exception as exc:
+        logger.warning(
+            f"Could not initialize official OTLPSpanExporter: {exc}; falling back to native HTTP exporter."
+        )
+        return None, None
+
+
+def _resolve_trace_context(traceparent: str | None) -> tuple[str, str | None, Any]:
+    """Resolves trace context hierarchy (Tier 1 to Tier 4)."""
+    raw_traceparent = traceparent or os.getenv("TRACEPARENT")
+    parsed_w3c = parse_w3c_traceparent(raw_traceparent) if raw_traceparent else None
+
+    if raw_traceparent and parsed_w3c is None:
+        logger.warning(
+            f"Malformed W3C traceparent '{raw_traceparent}'; falling back to active host context or new root trace."
+        )
+
+    if parsed_w3c is not None:
+        extracted_ctx = None
+        if _HAS_OTEL and TraceContextTextMapPropagator is not None:
+            extracted_ctx = TraceContextTextMapPropagator().extract(
+                carrier={"traceparent": parsed_w3c.raw}
+            )
+        return parsed_w3c.trace_id, parsed_w3c.parent_id, extracted_ctx
+
+    if _HAS_OTEL and otel_trace is not None:
+        curr = otel_trace.get_current_span()
+        if curr is not None and hasattr(curr, "get_span_context"):
+            ctx = curr.get_span_context()
+            if ctx and getattr(ctx, "is_valid", False):
+                return f"{ctx.trace_id:032x}", f"{ctx.span_id:016x}", None
+
+    return _random_hex(16), None, None
+
+
 class DiagnosisTracer:
     """
     Orchestrates OpenTelemetry Mode B tracing during an EvidenceTool diagnosis.
@@ -274,72 +342,30 @@ class DiagnosisTracer:
         self.trace_file = trace_file
         self.root_span: SpanRecord | None = None
         self.spans: list[SpanRecord] = []
+
+        # Canonical Active Span Tracking by unique span_id (B2)
+        self._active_spans_by_id: dict[str, SpanRecord] = {}
+        self._active_otel_spans_by_id: dict[str, Any] = {}
+        self._active_span_ids_by_name: dict[str, list[str]] = defaultdict(list)
+
+        # Backward compatibility indexes (mapping name to latest active span)
         self._active_spans: dict[str, SpanRecord] = {}
+        self._active_otel_spans: dict[str, Any] = {}
 
         # Host OpenTelemetry Tracer integration (strictly read-only, never mutates host provider)
         self._otel_tracer: Any = None
-        self._active_otel_spans: dict[str, Any] = {}
-        self._host_parent_span_id: str | None = None
-        self._extracted_otel_context: Any = None
-
         self._standalone_provider: Any = None
 
-        if (
-            self.endpoint
-            and _HAS_OTEL_EXPORTER
-            and OtelTracerProvider is not None
-            and OTLPSpanExporter is not None
-            and OtelResource is not None
-        ):
-            # Standalone exporter mode using official OTLPSpanExporter:
-            # We initialize a standalone TracerProvider without mutating the global host provider.
-            try:
-                res = OtelResource.create({"service.name": self.service_name or "evidencetool", "service.version": "1.0.3"})
-                provider = OtelTracerProvider(resource=res)
-                provider.add_span_processor(OtelSimpleSpanProcessor(OTLPSpanExporter(endpoint=self.endpoint)))
-                self._standalone_provider = provider
-                self._otel_tracer = provider.get_tracer("evidencetool", "1.0.3")
-            except Exception as exc:
-                logger.warning(
-                    f"Could not initialize official OTLPSpanExporter: {exc}; falling back to native HTTP exporter."
-                )
-                self._standalone_provider = None
+        if self.endpoint:
+            self._standalone_provider, self._otel_tracer = _init_standalone_exporter(
+                self.service_name or "evidencetool", self.endpoint
+            )
         elif _HAS_OTEL and otel_trace is not None:
             self._otel_tracer = otel_trace.get_tracer("evidencetool", "1.0.3")
 
-        # 4-Tier Precedence Hierarchy:
-        # Tier 1: Explicit traceparent argument
-        # Tier 2: TRACEPARENT environment variable
-        # Tier 3: Active host OpenTelemetry span context
-        # Tier 4: Generate new independent root trace
-        raw_traceparent = traceparent or os.getenv("TRACEPARENT")
-        parsed_w3c = parse_w3c_traceparent(raw_traceparent) if raw_traceparent else None
-
-        if raw_traceparent and parsed_w3c is None:
-            logger.warning(
-                f"Malformed W3C traceparent '{raw_traceparent}'; falling back to active host context or new root trace."
-            )
-
-        if parsed_w3c is not None:
-            self.trace_id = parsed_w3c.trace_id
-            self._host_parent_span_id = parsed_w3c.parent_id
-            if _HAS_OTEL and TraceContextTextMapPropagator is not None:
-                self._extracted_otel_context = TraceContextTextMapPropagator().extract(
-                    carrier={"traceparent": parsed_w3c.raw}
-                )
-        elif _HAS_OTEL and otel_trace is not None:
-            curr = otel_trace.get_current_span()
-            if curr is not None and hasattr(curr, "get_span_context"):
-                ctx = curr.get_span_context()
-                if ctx and getattr(ctx, "is_valid", False):
-                    self.trace_id = f"{ctx.trace_id:032x}"
-                    self._host_parent_span_id = f"{ctx.span_id:016x}"
-                else:
-                    self.trace_id = _random_hex(16)
-            else:
-                self.trace_id = _random_hex(16)
-        else:
-            self.trace_id = _random_hex(16)
+        self.trace_id, self._host_parent_span_id, self._extracted_otel_context = _resolve_trace_context(
+            traceparent
+        )
 
     def start_root_span(self, target: str, policy_action: str) -> SpanRecord:
         """Starts the root evidencetool.diagnosis span."""
@@ -356,11 +382,12 @@ class DiagnosisTracer:
                     "service.name": self.service_name,
                 },
             )
-            self._active_otel_spans["evidencetool.diagnosis"] = otel_span
             ctx = otel_span.get_span_context()
             if ctx and getattr(ctx, "is_valid", False):
                 self.trace_id = f"{ctx.trace_id:032x}"
                 span_id = f"{ctx.span_id:016x}"
+            self._active_otel_spans_by_id[span_id] = otel_span
+            self._active_otel_spans["evidencetool.diagnosis"] = otel_span
 
         self.root_span = SpanRecord(
             name="evidencetool.diagnosis",
@@ -374,6 +401,9 @@ class DiagnosisTracer:
                 "service.name": self.service_name,
             },
         )
+        self._active_spans_by_id[span_id] = self.root_span
+        self._active_span_ids_by_name["evidencetool.diagnosis"].append(span_id)
+        self._active_spans["evidencetool.diagnosis"] = self.root_span
         return self.root_span
 
     def start_span(self, name: str, parent: SpanRecord | None = None) -> SpanRecord:
@@ -383,8 +413,12 @@ class DiagnosisTracer:
         span_id = _random_hex(8)
 
         if self._otel_tracer is not None and otel_trace is not None:
-            parent_name = parent_span.name if parent_span else "evidencetool.diagnosis"
-            parent_otel = self._active_otel_spans.get(parent_name)
+            parent_otel = None
+            if parent_span:
+                parent_otel = self._active_otel_spans_by_id.get(parent_span.span_id)
+            if parent_otel is None:
+                parent_otel = self._active_otel_spans.get("evidencetool.diagnosis")
+
             context = None
             if parent_otel is not None:
                 context = otel_trace.set_span_in_context(parent_otel)
@@ -393,10 +427,11 @@ class DiagnosisTracer:
                 name=name,
                 context=context,
             )
-            self._active_otel_spans[name] = otel_span
             ctx = otel_span.get_span_context()
             if ctx and getattr(ctx, "is_valid", False):
                 span_id = f"{ctx.span_id:016x}"
+            self._active_otel_spans_by_id[span_id] = otel_span
+            self._active_otel_spans[name] = otel_span
 
         span = SpanRecord(
             name=name,
@@ -405,29 +440,75 @@ class DiagnosisTracer:
             trace_id=self.trace_id,
             start_time_unix_nano=time.time_ns(),
         )
+        self._active_spans_by_id[span_id] = span
+        self._active_span_ids_by_name[name].append(span_id)
         self._active_spans[name] = span
         return span
 
+    def _resolve_target_span_id(self, target: SpanRecord | str) -> str | None:
+        if isinstance(target, SpanRecord):
+            return target.span_id
+        if target in self._active_spans_by_id:
+            return target
+        if target in self._active_span_ids_by_name and self._active_span_ids_by_name[target]:
+            return self._active_span_ids_by_name[target].pop()
+        return target
+
+    def _cleanup_span_indexes(
+        self,
+        span: SpanRecord | None,
+        span_id: str | None,
+        otel_span: Any,
+        target: SpanRecord | str,
+    ) -> None:
+        if span:
+            span_name = span.name
+            if span_id and span_id in self._active_span_ids_by_name[span_name]:
+                self._active_span_ids_by_name[span_name].remove(span_id)
+            if self._active_spans.get(span_name) == span:
+                self._active_spans.pop(span_name, None)
+            if self._active_otel_spans.get(span_name) == otel_span:
+                self._active_otel_spans.pop(span_name, None)
+        elif isinstance(target, str):
+            self._active_spans.pop(target, None)
+            self._active_otel_spans.pop(target, None)
+
+    def _end_otel_span(
+        self,
+        otel_span: Any,
+        status: str,
+        description: str | None,
+        attributes: dict[str, Any] | None,
+    ) -> None:
+        if otel_span is None:
+            return
+        if attributes:
+            for k, v in attributes.items():
+                otel_span.set_attribute(k, v)
+        if OtelStatus is not None and OtelStatusCode is not None:
+            code = OtelStatusCode.OK if status == "OK" else OtelStatusCode.ERROR
+            desc = (description or "") if code == OtelStatusCode.ERROR else ""
+            otel_span.set_status(OtelStatus(code, description=desc))
+        otel_span.end()
+
     def end_span(
         self,
-        name: str,
+        target: SpanRecord | str,
         status: str = "OK",
         description: str | None = None,
         attributes: dict[str, Any] | None = None,
     ) -> SpanRecord | None:
-        """Ends an active span by name and records it."""
-        otel_span = self._active_otel_spans.pop(name, None)
-        if otel_span is not None:
-            if attributes:
-                for k, v in attributes.items():
-                    otel_span.set_attribute(k, v)
-            if OtelStatus is not None and OtelStatusCode is not None:
-                code = OtelStatusCode.OK if status == "OK" else OtelStatusCode.ERROR
-                desc = (description or "") if code == OtelStatusCode.ERROR else ""
-                otel_span.set_status(OtelStatus(code, description=desc))
-            otel_span.end()
+        """
+        Ends an active span by SpanRecord handle or legacy name string.
+        Resolves via unique span_id (B2) with secondary LIFO lookup for name strings.
+        """
+        span_id = self._resolve_target_span_id(target)
+        span = self._active_spans_by_id.pop(span_id, None) if span_id else None
+        otel_span = self._active_otel_spans_by_id.pop(span_id, None) if span_id else None
 
-        span = self._active_spans.pop(name, None)
+        self._cleanup_span_indexes(span, span_id, otel_span, target)
+        self._end_otel_span(otel_span, status, description, attributes)
+
         if span:
             if attributes:
                 for k, v in attributes.items():
@@ -457,9 +538,9 @@ class DiagnosisTracer:
             root_otel.set_attribute("evidencetool.decision.blocking_evidence", blocking_evidence)
             root_otel.set_attribute("evidencetool.decision.action", action)
 
-        self.start_span("evidencetool.decision")
+        dec_span = self.start_span("evidencetool.decision")
         self.end_span(
-            "evidencetool.decision",
+            dec_span,
             status="OK",
             description=reason,
             attributes={
@@ -475,6 +556,7 @@ class DiagnosisTracer:
         primary_root_cause: str | None,
         causal_chain: list[str],
         precluded_hypotheses: list[str],
+        span: SpanRecord | None = None,
     ) -> None:
         """Enriches root span and records evidencetool.causality span."""
         if self.root_span:
@@ -488,8 +570,9 @@ class DiagnosisTracer:
             if primary_root_cause:
                 root_otel.set_attribute("evidencetool.causality.primary_root_cause", primary_root_cause)
 
+        target_span: SpanRecord | str = span if span is not None else "evidencetool.causality"
         self.end_span(
-            "evidencetool.causality",
+            target_span,
             status="OK",
             attributes={
                 "evidencetool.causality.status": causality_status,
@@ -499,19 +582,34 @@ class DiagnosisTracer:
             },
         )
 
+    def _flush_trace(self, trace: TraceRecord) -> None:
+        if self.trace_file:
+            self.export_to_file(trace, self.trace_file)
+
+        if self._standalone_provider is not None:
+            try:
+                self._standalone_provider.force_flush(timeout_millis=OTLP_FLUSH_TIMEOUT_MILLIS)
+            except Exception as exc:
+                logger.warning(f"Failed to flush standalone OTLP exporter: {exc}")
+        elif self.endpoint:
+            self.export_to_otlp(trace, self.endpoint)
+
     def finish(self, status: str = "OK", description: str | None = None) -> TraceRecord:
         """Finalizes the root span and exports the trace if configured."""
         root_otel = self._active_otel_spans.pop("evidencetool.diagnosis", None)
-        if root_otel is not None:
-            if OtelStatus is not None and OtelStatusCode is not None:
-                code = OtelStatusCode.OK if status == "OK" else OtelStatusCode.ERROR
-                desc = (description or "") if code == OtelStatusCode.ERROR else ""
-                root_otel.set_status(OtelStatus(code, description=desc))
-            root_otel.end()
+        if self.root_span and self.root_span.span_id in self._active_otel_spans_by_id:
+            self._active_otel_spans_by_id.pop(self.root_span.span_id, None)
+        self._end_otel_span(root_otel, status, description, None)
 
-        for leftover in list(self._active_otel_spans.values()):
+        for leftover in list(self._active_otel_spans_by_id.values()):
             leftover.end()
+        for leftover_compat in list(self._active_otel_spans.values()):
+            leftover_compat.end()
+        self._active_otel_spans_by_id.clear()
         self._active_otel_spans.clear()
+        self._active_spans_by_id.clear()
+        self._active_spans.clear()
+        self._active_span_ids_by_name.clear()
 
         if self.root_span:
             self.root_span.end(status=status, description=description)
@@ -527,19 +625,7 @@ class DiagnosisTracer:
             )
 
         trace = TraceRecord(trace_id=self.trace_id, root_span=self.root_span, spans=self.spans)
-
-        # Standalone export if explicitly configured
-        if self.trace_file:
-            self.export_to_file(trace, self.trace_file)
-
-        if self._standalone_provider is not None:
-            try:
-                self._standalone_provider.force_flush()
-            except Exception as exc:
-                logger.warning(f"Failed to flush standalone OTLP exporter: {exc}")
-        elif self.endpoint:
-            self.export_to_otlp(trace, self.endpoint)
-
+        self._flush_trace(trace)
         return trace
 
     def export_to_file(self, trace: TraceRecord, filepath: str) -> None:
@@ -569,7 +655,7 @@ class DiagnosisTracer:
             method="POST",
         )
         try:
-            with urllib.request.urlopen(req, timeout=5) as resp:  # nosec B310
+            with urllib.request.urlopen(req, timeout=OTLP_EXPORT_TIMEOUT_SECONDS) as resp:  # nosec B310
                 return resp.status in (200, 202)
         except Exception as exc:
             logger.warning(f"Failed to export trace to OTLP endpoint {url}: {exc}")

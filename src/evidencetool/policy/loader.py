@@ -55,7 +55,31 @@ def _parse_evidence_requirement(item: object, index: int) -> EvidenceRequirement
         or max_age < 0
     ):
         raise ValueError(f"Invalid policy: required_evidence[{index}].max_age must be a non-negative number.")
-    return EvidenceRequirement(id=evidence_id, on_unknown=on_unknown, max_age=max_age)
+
+    raw_threshold = item.get("threshold")
+    threshold: float | None = None
+    if raw_threshold is not None:
+        if (
+            isinstance(raw_threshold, bool)
+            or not isinstance(raw_threshold, (int, float))
+            or not math.isfinite(raw_threshold)
+        ):
+            raise ValueError(f"Invalid policy: required_evidence[{index}].threshold must be a finite number.")
+        threshold = float(raw_threshold)
+
+    comparator = item.get("comparator", "<=")
+    if not isinstance(comparator, str) or comparator not in ("<=", "<", ">=", ">", "=="):
+        raise ValueError(
+            f"Invalid policy: required_evidence[{index}].comparator must be one of '<=', '<', '>=', '>', '=='."
+        )
+
+    return EvidenceRequirement(
+        id=evidence_id,
+        on_unknown=on_unknown,
+        max_age=max_age,
+        threshold=threshold,
+        comparator=comparator,
+    )
 
 
 def _validate_situational_lists(raw: dict[str, Any]) -> tuple[list[str], list[str]]:

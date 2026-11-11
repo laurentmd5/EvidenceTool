@@ -59,3 +59,47 @@ causal_rules:
     description: "Remote microservice outage triggers local circuit breaker or throttling"
     is_root_cause_candidate: true
     is_surface_symptom: false
+
+  # 4. Cache Failure with Database Overload -> Database Latency
+  - id: CACHE_FAILURE_TO_DB_OVERLOAD
+    source: CACHE_FAILURE_DATABASE_OVERLOAD
+    target: DATABASE_LATENCY_DEGRADATION
+    relation: PROPAGATES_TO
+    conditions:
+      redis.memory_pressure: FAIL
+      postgres.latency_ms: FAIL
+    description: "Redis cache memory saturation causing database query latency spike"
+    is_root_cause_candidate: true
+
+  # 5. Declarative Preclusions
+  - id: NETWORK_PORT_PRECLUDES_PARTITION
+    source: NETWORK_PORT_REACHABLE
+    target: TOTAL_NETWORK_PARTITION
+    relation: PRECLUDES
+    conditions:
+      network.port_reachable: PASS
+    description: "Reachable network port precludes total network partition"
+
+  - id: REDIS_REACHABLE_PRECLUDES_PARTITION
+    source: REDIS_REACHABLE
+    target: TOTAL_NETWORK_PARTITION
+    relation: PRECLUDES
+    conditions:
+      redis.reachable: PASS
+    description: "Reachable Redis port precludes total network partition"
+
+  - id: POSTGRES_REACHABLE_PRECLUDES_UNREACHABLE
+    source: POSTGRES_REACHABLE
+    target: POSTGRES_UNREACHABLE
+    relation: PRECLUDES
+    conditions:
+      postgres.reachable: PASS
+    description: "Reachable PostgreSQL port precludes unreachable hypothesis"
+
+  - id: REDIS_REACHABLE_PRECLUDES_UNREACHABLE
+    source: REDIS_REACHABLE
+    target: REDIS_UNREACHABLE
+    relation: PRECLUDES
+    conditions:
+      redis.reachable: PASS
+    description: "Reachable Redis port precludes unreachable hypothesis"

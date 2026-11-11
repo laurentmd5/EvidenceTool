@@ -37,7 +37,7 @@ def run_command(
     # If host is provided, wrap in ssh
     actual_args = args
     if host:
-        control_path = "/tmp/evidencetool_ssh_%h_%p_%r"
+        control_path = "/tmp/evidencetool_ssh_%h_%p_%r"  # nosec B108
         actual_args = [
             "ssh",
             "-o", "BatchMode=yes",

@@ -1,4 +1,6 @@
-# EvidenceTool (V1.0.2 — Deterministic Causal Operational Reasoning Engine)
+**English** | [Français](README.fr.md)
+
+# EvidenceTool (V1.0.6 — Deterministic Causal Operational Reasoning Engine)
 
 > EvidenceTool does not automate actions first. It makes operational decisions explainable first.
 
@@ -25,11 +27,12 @@ EvidenceTool is tested and verified on the following environments:
 - **Kubernetes Clusters** (Pods, ContainerStatuses, OOMKilled, CrashLoopBackOff, ImagePull, Scheduling, Nodes)
 - **Database & Middleware** (PostgreSQL 14-17, MySQL 8 / MariaDB, Redis 6-7 RESP)
 - **Distributed Microservice Dependencies** (HTTP API latency SLA budgets, circuit breakers)
+- **OpenTelemetry & Observability** (Prometheus, Grafana Tempo, Jaeger, OpenTelemetry Collector)
 - Any POSIX systemd-based Linux distribution with standard coreutils
 
 ---
 
-## Built-in Diagnostic Providers (12 Native Domains)
+## Built-in Diagnostic Providers (13 Native Domains)
 
 | Provider | Namespace | Checks / Observations | Scope |
 | :--- | :--- | :--- | :--- |
@@ -45,6 +48,7 @@ EvidenceTool is tested and verified on the following environments:
 | **Redis** | `redis` | `redis.reachable`, `redis.ping`, `redis.auth`, `redis.memory_pressure`, `redis.role`, `redis.latency_ms` | Bounded RESP wire protocol, PING/PONG, memory saturation (OOM), replication link |
 | **Dependency** | `dependency` | `dependency.http_status`, `dependency.latency_ms`, `dependency.sla_budget`, `dependency.circuit_breaker` | Upstream API SLA latency budget, HTTP 503/429/504 circuit breaking, curl max-time |
 | **Kubernetes** | `k8s` / `kubernetes` | `k8s.pod_phase`, `k8s.containers_ready`, `k8s.container_crashloop`, `k8s.container_oom_killed`, `k8s.image_pull_status`, `k8s.config_secret_status`, `k8s.pod_scheduled`, `k8s.node_ready` | Read-only kubectl inspection with namespace confinement & transport failure handling |
+| **OpenTelemetry** | `otel` | `otel.metrics_reachable`, `otel.traces_reachable`, `otel.http_error_rate_high`, `otel.p99_latency_high`, `otel.active_traces_failing` | Bounded, SSRF-safe metrics (Prometheus) and distributed trace queries (Tempo/Jaeger) |
 
 ---
 
@@ -54,7 +58,7 @@ EvidenceTool is tested and verified on the following environments:
 Incident
    │
    ▼
-Static Provider Trust Boundary (12 Builtins + Approved Plugins via SHA-256)
+Static Provider Trust Boundary (13 Builtins + Approved Plugins via SHA-256)
    │
    ▼
 Observation Collection   (Local OR Remote via Agentless SSH with ConnectTimeout)
@@ -183,6 +187,36 @@ else:
         print(f"OTel Trace ID: {result.trace_id}")
 ```
 
+## The Closed Loop of Operational Trust (Modes A, B, and C)
+
+EvidenceTool bridges high-level application observability with deep low-level infrastructure verification through three complementary operational modes:
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                        MODE A: INBOUND TELEMETRY                       │
+│    OTel/Prometheus/Tempo Ingestion (Metrics, Latency, Trace Spans)     │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │ Surface Symptoms
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                   MODE C: HYBRID CAUSAL REASONING                      │
+│   Correlates Surface Symptoms with Deep Native Physical Probes         │
+│   (Postgres connection pools, Redis memory, Nginx configs, TLS keys)   │
+│   DAG Causality: Root Cause Discovery & Hypotheses Preclusion          │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │ Deterministic Decision
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                        MODE B: OUTBOUND TRACING                        │
+│   Emits W3C-correlated OpenTelemetry Traces of the Reasoning Pipeline  │
+│   Full auditability sent back to Jaeger / Tempo / APM                  │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+- **Mode A (Inbound External Telemetry)**: Ingests external Prometheus metrics and Tempo/Jaeger distributed traces via the `otel` provider. Strictly observes values and leaves threshold evaluation to declarative policies. Features SSRF protection, redirection rejection, bounded payloads, and credential sanitization.
+- **Mode B (Outbound Distributed Tracing)**: Emits structured OpenTelemetry spans for every step of the diagnostic pipeline (`provider`, `evaluation`, `correlation`, `causality`, `decision`), propagating context via W3C `traceparent` without mutating the host application's `TracerProvider`. Operates in pure Python standard library with zero external dependencies, or with official OTel SDK bindings.
+- **Mode C (Hybrid Causal Reasoning & Hardening)**: Bridges high-level surface symptoms (e.g. HTTP 503 or latency spikes) to deep native system probes (e.g. database pool exhaustion, process deadlocks, invalid TLS configs) via declarative causal graphs (`PROPAGATES_TO`, `PRECLUDES`, `REQUIRES`). Enforces cycle detection before arbitration (C7), topological completeness (C8), strict priority & tie-breaking invariants (C9, C9b), unranked ambiguity preservation (C10), subgraph uncertainty isolation (C11), prerequisite refutation (C12), zero undeclared causality (C13), causal subgraph reachability isolation (C14, C19), contiguous causal path semantics without branching hallucinations (C15), multi-rule source preservation (C16), and fail-closed catalog validation with zero silent coercion (C17, C18, C20-C23). See [docs/causality/hybrid-causal-reasoning.md](docs/causality/hybrid-causal-reasoning.md).
+
 ## OpenTelemetry Tracing (Mode B Outbound)
 
 EvidenceTool emits structured, distributed OpenTelemetry traces mapping its entire operational reasoning pipeline to APM/tracing backends (Jaeger, Grafana Tempo, Datadog):
@@ -270,20 +304,22 @@ sudo usermod -aG docker evidencetool
 ```
 
 ## Tests & CI Verification
-
+ 
 ```bash
-# Run unit tests with full coverage
+# Run 292 unit and integration tests with full coverage
 pytest tests/ -v --cov=evidencetool --cov-report=term
 
 # E2E Operational Tests (Nginx Systemd on Ubuntu + Debian, and Docker scenarios)
 ./tests/e2e/run.sh
 
-# Code Quality & DevSecOps Suite
+# Strict Code Quality & DevSecOps Suite (100% clean)
 ruff check src/ tests/
 mypy src/
 bandit -r src/ -c pyproject.toml
 pip-audit
 ```
+
+All 292 tests pass cleanly with strict typing across 54 source files, zero linter warnings, and zero security vulnerabilities.
 
 ## Writing a Policy
 

@@ -1,6 +1,112 @@
+**English** | [Français](CHANGELOG.fr.md)
+
 # Changelog
 
 All notable changes to this project will be documented in this file.
+
+## [1.0.7] - 2026-09-19
+### Mode A & Mode B Production Hardening
+- **Mode A (Inbound Telemetry) Budget Enforcement & Defenses (`A1`, `A2`)**:
+  - **Full TelemetryBudget Enforcement (`A1`)**: Enforced all declared budget dimensions at runtime: network socket `read_timeout`, Prometheus vector slicing (`max_result_items`), distributed traces query limits (`max_traces`), and per-trace span iteration limits (`max_spans_per_trace`).
+  - **Hard Ceilings Anti-Bypass (`A1`)**: Introduced immutable internal `HARD_BUDGET_CEILINGS` and `build_clamped_telemetry_budget` helper, clamping all caller-provided `ProviderContext` parameters to prevent denial-of-service or configuration bypass.
+  - **Deterministic Lookback Specification (`A2`)**: Implemented `_parse_lookback`:
+    - Valid lookback $\le$ budget is preserved.
+    - Valid lookback $>$ budget is clamped to `max_lookback_seconds` with audit transparency metadata (`requested_lookback`, `effective_lookback`, `lookback_clamped: true`).
+    - Invalid lookback syntax evaluates fail-closed to `Observation(status="UNKNOWN")` (`transport_status="failed"`), eliminating silent 5m fallbacks.
+  - **Pre-Deserialization Stream Bounding (`A2`)**: Bounded raw byte reading before `json.loads` to protect CPU and memory.
+- **Mode B (Outbound Tracing) Resilience & Canonical Span Identity (`B1`, `B2`)**:
+  - **Asynchronous Batch Export (`B1`)**: Upgraded standalone OTLP tracer from `SimpleSpanProcessor` to `BatchSpanProcessor` (`max_queue_size=512`). Span end operations enqueue in memory and never block synchronously on collector network round-trips.
+  - **Dual Bounded Timeouts (`B1`)**:
+    - `OTLP_EXPORT_TIMEOUT_SECONDS = 2.0`: Strict HTTP connection and request timeout for OTLP export.
+    - `OTLP_FLUSH_TIMEOUT_MILLIS = 2000`: Bounded maximum flush duration during `tracer.finish()`.
+    - Pure Python fallback exporter timeout harmonized to 2.0s.
+  - **Exporter Failure $\neq$ Diagnostic Failure (`B1`)**: Collector 500 errors, network dropouts, or timeout exceptions are isolated as telemetry export warnings and never fail or corrupt the diagnosis.
+  - **Canonical Span Identity (`B2`)**: Refactored span tracking to use unique `span_id` as primary key (`_active_spans_by_id`, `_active_otel_spans_by_id`). Internal diagnostic orchestrators (`diagnose.py`) pass `SpanRecord` handles, preventing overwrite collisions when concurrent or sequential child spans share identical names. Secondary LIFO stack preserves backward compatibility for legacy name strings.
+- **Expanded Quality Gates & Parity**:
+  - Added dedicated unit tests covering A1, A2, B1, and B2. Full suite expanded from 296 to **307 tests passing 100%**.
+  - 100% bilingual documentation parity in English and French.
+
+## [1.0.6] - 2026-09-18
+### Mode C Hybrid Causal Reasoning Adversarial Hardening
+- **Pre-Arbitration Graph Validation & Cycle Detection (`C7`)**:
+  - Implemented `_detect_cycles()` performing deterministic cycle finding prior to root candidate arbitration.
+  - Enforced the invariant: *Causal graph validation MUST happen before causal arbitration*.
+  - Fixed `ValueError` in `_arbitrate_candidates` when all confirmed nodes form a directed cycle ($A \longrightarrow B \longrightarrow A$).
+  - In the presence of a cycle, the engine gracefully avoids crashing, sets `primary_root_cause = None`, preserves candidates with `state = POSSIBLE`, and reports detected cycle paths in `cycles_detected`.
+- **Topological Chain Preservation & Strict Ordering (`C8`)**:
+  - Enforced strict deterministic node ordering in `_find_causal_path` and `_build_causal_chain` via sorted neighbor traversal.
+  - Long multi-hop chains ($A \longrightarrow B \longrightarrow C \longrightarrow D \longrightarrow S$) retain all intermediate nodes in strictly ordered topological sequence ($[A, B, C, D, S]$).
+- **Priority Disambiguation & Priority Tie Invariant (`C9`, `C9b`)**:
+  - Explicit integer `priority: <int>` deterministically elects the highest-priority root candidate.
+  - Added Priority Tie Invariant: if multiple roots share the exact same maximum priority, no dictionary or file insertion order tie-breaking is permitted $\to$ `ROOT_CAUSE_CONSTRAINED` with all candidates preserved as `POSSIBLE`.
+- **Indispensable Prerequisite Semantics (`C11`, `C12`)**:
+  - Formalized tripartite behavior of `REQUIRES`:
+    - $B = \text{PASS} \implies A$ may be confirmed.
+    - $B = \text{UNKNOWN} \implies A$ transitions to `UNRESOLVED` (recorded in `unresolved_hypotheses` with `missing_evidence: [B]`).
+- **Causal Subgraph Reachability & Symptom Isolation (`C14`, `C19` / `H1`)**:
+  - Eliminated fallback iteration that appended unvisited/unreachable symptoms to `causal_chain`.
+  - Enforced strict reachability invariant: every node in `causal_chain` and `propagated_symptoms` must belong to the directed reachable subgraph of the primary root cause.
+  - Disjoint symptoms ($S_2$) from unrelated or unconfirmed components ($B \longrightarrow S_2$) are completely isolated and never leak into root $A$'s explanation.
+- **Contiguous Causal Path & Branching Semantics (`C15` / `H2`)**:
+  - Formalized `causal_chain` as a single, contiguous directed path $[v_0, \dots, v_k]$ where every adjacent pair $(v_i, v_{i+1})$ has an explicit directed edge ($v_i \longrightarrow v_{i+1}$).
+  - In branching graphs ($A \longrightarrow B \longrightarrow S$ and $A \longrightarrow C \longrightarrow S$), eliminated pseudo-chains ($[A, B, C, S]$) containing non-existent transitions.
+  - BFS traverses neighbors ordered by edge priority (yielding minimum hops to target); `_build_causal_chain` deterministically evaluates candidate paths by depth, edge priority sum, and lexicographical tie-breaker.
+- **Multi-Rule Source Preservation (`C16` / `H3`)**:
+  - Replaced single-rule dictionary with `dict[str, list[CausalRule]]`, preventing rule overwriting when a source node declares multiple outgoing branches ($A \longrightarrow B$ and $A \longrightarrow C$).
+  - Root candidate priority evaluates the maximum declared priority across all outgoing rules. Candidate descriptions reflect the active branch edge.
+- **Fail-Closed Catalog Validation & Zero Silent Coercion (`C17`, `C18`, `C20-C23` / `H4`, `H4.1`)**:
+  - Enforced mandatory non-empty `id`, `source`, `target`, and `relation` in YAML catalog loader.
+  - Eliminated silent fallback to `PROPAGATES_TO` on invalid or misspelled relations (`PROPAGATSE_TO` raises `ValueError`). Corrupted catalogs fail closed immediately.
+  - Enforced zero silent coercion (H4.1): non-integer priorities (`priority: "HIGH"`, floats, booleans) raise `ValueError` (C20); malformed or invalid conditions raise `ValueError` (C21); non-boolean flags (`"maybe"`, `1`) raise `ValueError` (C22); non-dictionary rule entries raise `ValueError` (C23).
+- **C12 Model & Contract Clarification**:
+  - Formally specified that `PRECLUDED` is an exclusion outcome recorded in `precluded_hypotheses`; it is not an active `CausalCandidateState` (active candidates remain `CONFIRMED`, `POSSIBLE`, and `UNRESOLVED`).
+- **Comprehensive Adversarial Verification Suite**:
+  - Added 10 new adversarial scenarios (C14 to C23) to `tests/test_causality_mode_c_adversarial.py`.
+  - Test suite expanded from 286 to **296 tests passing 100%** with strict type safety (`mypy`), linting (`ruff`), and security scanning (`bandit`).
+
+## [1.0.5] - 2026-09-18
+### Mode C Hybrid Causal Reasoning Engine (Phase 2)
+- **Deterministic Causal Graph Engine Refactoring**:
+  - Removed all hardcoded indicators and hardcoded preclusions from Python code in favor of 100% declarative YAML rules.
+  - Implemented formal support for 3 fundamental causal relations: `PROPAGATES_TO` ($A \longrightarrow B$), `PRECLUDES` ($A \mathrel{\rlap{\quad\not}\longrightarrow} B$), and `REQUIRES` ($A \xleftarrow{\text{req}} B$).
+  - Implemented Subgraph Uncertainty Isolation: an `UNKNOWN` observation affects only hypotheses directly dependent on it, preserving complete immunity for disjoint probe subgraphs.
+- **Deterministic Multi-Candidate Arbitration**:
+  - Eliminated arbitrary tie-breaking: when multiple independent root causes are confirmed concurrently without priority or hierarchy, all candidates are preserved as `POSSIBLE` with `status = ROOT_CAUSE_CONSTRAINED` and `primary_root_cause = None`.
+  - Deterministic resolution enabled exclusively via multi-hop causal graph hierarchy or explicit catalog rule `priority: <int>`.
+  - Zero implicit causality: multiple failing situations without declared causal propagation rules evaluate to `status = ROOT_CAUSE_UNKNOWN` and `causal_chain = []`.
+- **Causal Domain Models & Schema Alignment**:
+  - Extended domain models with `CausalCandidateState` (`CONFIRMED`, `POSSIBLE`, `UNRESOLVED`), `CausalCandidate` dataclass, and `unresolved_hypotheses`.
+  - Updated `schemas/diagnosis-result.schema.json` to support both string identifiers and structured candidate objects backward-compatibly.
+- **Formal Verification Suite (Scenarios C1 to C6)**:
+  - Added dedicated test suite `tests/test_causality_mode_c.py` verifying scenarios C1–C6 and the `REQUIRES` causal relation.
+  - Test suite expanded to 275 tests passing 100% with strict type safety (`mypy`), linting (`ruff`), and security scanning (`bandit`).
+- **Product Contract Formalization**:
+  - Added Section 26 to `PRODUCT_CONTRACT.md` detailing the 6 core invariants of Mode C Hybrid Causal Reasoning.
+
+## [1.0.4] - 2026-09-18
+### OpenTelemetry Mode A Inbound Telemetry & Mode C Hybrid Correlation
+- **Inbound Telemetry Provider (`otel`)**:
+  - Implemented `OTelProvider` (`@provider("otel", trust=ProviderTrust.BUILTIN)`), enabling non-intrusive ingestion of application metrics and distributed trace error counts from Prometheus and Tempo/Jaeger backends.
+  - Built-in provider count increased from 12 to 13 modules, protected against runtime tampering or authority extension.
+- **Provider Responsibility Separation & Pipeline Alignment**:
+  - Provider is strictly limited to observation and normalization of raw values (e.g. error rate `0.073`, latency `842.0ms`, error spans `17`).
+  - Business SLA threshold evaluation (`PASS` / `FAIL`) is executed deterministically by the `Evidence Evaluator` according to `EvidenceRequirement(threshold, comparator)` declared in the policy.
+  - Trace error searches include explicit time-window metadata (`lookback="5m"`).
+- **Centralized `TelemetryHTTPClient` & SSRF Protection**:
+  - Strict No-Redirect Policy: HTTP 3xx responses are immediately rejected (`RedirectDenied` / `UNKNOWN`) to prevent SSRF rebound attacks.
+  - Pre-connect validation via `NetworkCapability` (`operation="otel_query"`), with automated blocking of cloud metadata endpoints (`169.254.169.254`).
+  - Multi-dimensional `TelemetryBudget`: request limits (5 max), bounded stream reading (1MB ceiling) before JSON deserialization, and query length limits.
+  - Centralized credential and token redaction across URLs, headers, logs, traces, and error messages (`[REDACTED]`).
+- **Separation of Telemetry Availability from Service Health (Local Uncertainty)**:
+  - Technical reachability (`otel.metrics_reachable`, `otel.traces_reachable`) evaluates transport availability (`PASS` / `UNKNOWN`).
+  - Monitoring backend failure maps to `TELEMETRY_METRICS_UNAVAILABLE` without producing false positive service errors (`UNKNOWN ≠ FAIL`).
+- **Mode C Hybrid Causal Correlation**:
+  - Declarative catalogs `catalogs/telemetry.yaml` and `causality/telemetry.yaml` linking high-level surface telemetry symptoms to native physical root causes (e.g. PostgreSQL connection pool exhaustion or Redis memory pressure).
+  - Nominal telemetry (`SERVICE_TELEMETRY_NOMINAL`) formally refutes and precludes active outage hypotheses.
+- **Product Contract Formalization**:
+  - Added Section 25 to `PRODUCT_CONTRACT.md` detailing the 6 core invariants.
+- **Test Suite Expansion**:
+  - Added 14 new tests (`tests/test_otel_provider.py`, `tests/test_diagnose_telemetry.py`), bringing the test suite to 266 tests passing 100%.
 
 ## [1.0.3] - 2026-09-18
 ### OpenTelemetry Mode B Outbound Tracing (Production-Ready)

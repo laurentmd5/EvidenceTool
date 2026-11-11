@@ -1,7 +1,9 @@
+**English** | [Français](PRODUCT_CONTRACT.fr.md)
+
 # EvidenceTool — PRODUCT_CONTRACT.md
 
-**Version:** 10.2 (V1.0.2 Deterministic Causal Operational Reasoning Engine & Incident Model)
-**Status:** Active specification for V1.0.2 Deterministic Causal Operational Reasoning Engine, Incident Model & Local Uncertainty Governance
+**Version:** 10.6 (V1.0.6 Deterministic Causal Operational Reasoning Engine & Incident Model)
+**Status:** Active specification for V1.0.6 Closed-Loop Operational Trust (Modes A, B, C) & Local Uncertainty Governance
 **Scope:** This document defines the minimal functional and architectural contract that the EvidenceTool codebase must respect.
 
 ---
@@ -667,3 +669,146 @@ EvidenceTool produces distributed OpenTelemetry traces mapping its internal oper
 1. **Host-Managed Exporter**: When running inside an already instrumented host application, EvidenceTool spans route through the host's existing `TracerProvider` pipeline.
 2. **Official OTLP Exporter in Standalone Mode**: When executed standalone (CLI or isolated script with `--otel-endpoint`) and `opentelemetry-exporter-otlp-proto-http` is installed, EvidenceTool initializes an internal `TracerProvider` with `OTLPSpanExporter` transmitting standard binary Protobuf over HTTP (`application/x-protobuf`) without mutating the global host provider.
 3. **Pure-Python Zero-Dependency Fallback**: If the OpenTelemetry SDK/exporter packages are absent, EvidenceTool falls back to transmitting standard OTLP JSON (`application/json`) via pure Python standard library HTTP requests.
+
+### 24.8 Production Hardening Contract (B1 & B2 — V1.0.7 Contract)
+1. **Asynchronous Non-Blocking Processing (B1)**: In standalone mode, spans are enqueued in memory using `BatchSpanProcessor` (`max_queue_size=512`). Span end operations never block synchronously on collector network round-trips.
+2. **Dual Bounded Timeouts (B1)**:
+   - `OTLP_EXPORT_TIMEOUT_SECONDS = 2.0`: HTTP transport and connection timeout for OTLP export.
+   - `OTLP_FLUSH_TIMEOUT_MILLIS = 2000`: Maximum flush grace period permitted during `tracer.finish()`.
+   - Pure-Python fallback exporter timeout is harmonized to `OTLP_EXPORT_TIMEOUT_SECONDS = 2.0`.
+3. **Exporter Failure $\neq$ Diagnostic Failure Invariant (B1)**: Exporter failures (HTTP 500, timeouts, connection refused, drops) are telemetry export failures, NEVER diagnostic failures. `tracer.finish()` handles export exceptions gracefully and always returns the completed `TraceRecord`.
+4. **Canonical Span Identity Invariant (B2)**: Unique `span_id` is the primary identity for active spans (`_active_spans_by_id`, `_active_otel_spans_by_id`). Internal diagnostic orchestrators hold `SpanRecord` handles, preventing overwrite collisions when multiple concurrent or repeated spans share identical names. Secondary LIFO name index (`_active_span_ids_by_name`) preserves backward compatibility for string lookups.
+
+---
+
+## 25. OpenTelemetry Mode A Inbound Telemetry Contract (V1.0.4 Contract)
+
+### 25.1 Telemetry Observation Invariant
+1. **External Observation Only**: Telemetry backends (Prometheus, Tempo, Jaeger, OTel Collector) are treated strictly as external observation sources (`Telemetry -> Evidence`).
+2. **Authority Decoupling**: Inbound telemetry brings additional evidence, but **MUST NEVER** confer or extend authority to any caller, model, or diagnostic entity. It does not alter capability budgets, bypass policies, or substitute cryptographic identity.
+3. **Backend Disambiguation**: EvidenceTool interacts with telemetry interfaces (Prometheus HTTP `/api/v1/query`, Tempo/Jaeger HTTP `/api/traces`), not proprietary or direct OpenTelemetry SDK internals.
+
+### 25.2 Deterministic Interpretation Invariant
+1. **Observation vs. Evaluation**: Telemetry providers are strictly limited to collecting and normalizing raw observed values (e.g. error rate `0.073`, latency `842.0ms`, error spans `17`). Providers **MUST NOT** evaluate diagnostic business thresholds or decide whether a value constitutes an incident.
+2. **Evaluation Layer Responsibility**: Verification of thresholds against service SLAs is exclusively executed by the `Evidence Evaluator` using policy declarations (`threshold`, `comparator`) and situational signatures.
+3. **Technical Status Exclusivity**: Direct technical status (`PASS` / `UNKNOWN`) in observations is strictly reserved for transport availability (`otel.metrics_reachable`, `otel.traces_reachable`).
+
+### 25.3 Telemetry Capability & SSRF Invariant
+1. **Pre-connect Authorization**: Every remote telemetry query MUST be pre-authorized via `NetworkCapability` under the `"otel_query"` operation, matching authorized target hosts and ports before any network socket is opened.
+2. **Strict No-Redirect Policy**: Telemetry HTTP clients **MUST NOT** follow HTTP 3xx redirects. Any redirect status code is treated as an unexpected redirect and rejected as `UNKNOWN` / `CapabilityDenied` to prevent SSRF bypass attacks (e.g. redirection to `169.254.169.254` or internal subnets).
+3. **Centralized Sanitization**: All credentials, tokens, and sensitive query parameters in URLs, logs, traces, and error messages MUST be systematically redacted as `[REDACTED]`.
+
+### 25.4 Telemetry Uncertainty Invariant
+1. **Separation of Availability and Health**: Monitoring backend unavailability (`TELEMETRY_METRICS_UNAVAILABLE`) MUST be strictly separated from service health situations (`SERVICE_ERROR_RATE_EXCEEDED`).
+2. **UNKNOWN is Not FAIL**: If a metrics or traces backend times out, is unreachable, or returns a transport failure, the affected observations evaluate to `UNKNOWN` (`transport_status="failed"`). Telemetry uncertainty **NEVER** implicitly converts to `FAIL`, preventing false positive alerts or misattributed service blame.
+
+### 25.5 Telemetry Resource-Bound Invariant (A1 & A2 Hardening Addendum)
+1. **Multi-Dimensional Budget**: Telemetry collection is governed by a strict `TelemetryBudget`:
+   - `max_requests`: limits total HTTP queries per collection pass (default 10, hard ceiling 50).
+   - `max_response_bytes`: bounds stream reading to 1MB (hard ceiling 10MB).
+   - `connect_timeout` & `read_timeout`: bounded network socket timeouts (hard ceilings 5.0s and 10.0s).
+   - `max_query_length`: bounds query string length (default 1024, hard ceiling 4096 characters).
+   - `max_lookback_seconds`: bounds trace search time window (default 3600s, hard ceiling 86400s / 24h).
+   - `max_result_items`: bounds metric items processed (default 100, hard ceiling 1000).
+   - `max_traces`: bounds traces processed (default 50, hard ceiling 200).
+   - `max_spans_per_trace`: bounds CPU iteration per trace (default 500, hard ceiling 2000).
+2. **Pre-Deserialization Stream Bounding**: Socket streams MUST be bounded during read (`read(limit + 1)`). If the payload exceeds the budget, the stream is aborted immediately before invoking JSON deserialization (`json.loads()`).
+3. **Hard Budget Ceilings Anti-Bypass Invariant (A1)**: All inputs from `ProviderContext` are validated and clamped against immutable internal limits (`HARD_BUDGET_CEILINGS`) to prevent configuration bypass or resource exhaustion.
+4. **Deterministic Lookback Specification (A2)**:
+   - Valid lookback $\le$ `max_lookback_seconds` is preserved verbatim.
+   - Valid lookback $>$ `max_lookback_seconds` is clamped to the budget ceiling and records audit metadata (`requested_lookback`, `effective_lookback`, `lookback_clamped: true`).
+   - Invalid lookback syntax evaluates fail-closed to `UNKNOWN` (`transport_status="failed"`). Silent 5m fallback is strictly prohibited.
+
+### 25.6 Hybrid Causality Invariant (Mode C Bridge)
+1. **Surface Symptoms vs. Physical Root Causes**: Inbound telemetry signals (e.g. `otel.http_error_rate`, `otel.p99_latency_ms`) are modeled in the causal engine as surface symptoms (`is_surface_symptom: true`), not as physical root causes.
+2. **Deterministic Root-Cause Reconstruction**: When surface telemetry symptoms correlate with native physical probes (e.g. `postgres.pool_exhaustion: FAIL`, `redis.memory_pressure: FAIL`), the causal engine constructs a causal propagation chain attributing the root cause to the physical failure (`relation: PROPAGATES_TO`).
+3. **Hypothesis Preclusion**: Nominal telemetry (`SERVICE_TELEMETRY_NOMINAL`) formally refutes and precludes active outage hypotheses (`relation: PRECLUDES`), preventing unnecessary service restarts or destructive automated rollbacks.
+
+---
+
+## 26. Mode C Hybrid Causal Reasoning & Adversarial Hardening Contract (V1.0.6 Contract)
+
+### 26.1 Zero Implicit Causality Invariant (C13)
+1. **No Tacit Assumptions**: Two failing situations or observations occurring simultaneously carry zero causal relationship unless formally linked by a declarative causal rule in a loaded causality catalog (`causality/*.yaml`).
+2. **No Arbitrary Association**: If surface symptoms are observed and native physical probes fail without a declared causal rule connecting them, the engine MUST NOT fabricate a link: `primary_root_cause = None`, `status = ROOT_CAUSE_UNKNOWN`, `causal_chain = []`.
+
+### 26.2 Deterministic Candidate States Invariant
+Every root-cause candidate hypothesis evaluated by EvidenceTool is assigned a strictly deterministic state:
+1. **CONFIRMED**: The situation signature or direct physical evidence is verified (`FAIL`), the causal propagation rule is active, and no active preclusion contradicts it.
+2. **POSSIBLE**: Multiple independent root causes are confirmed for the same incident symptom without declared priority or hierarchical cascade.
+3. **UNRESOLVED**: The causal hypothesis explains the symptom, but required physical evidence evaluates to `UNKNOWN` (timeout, unreachable probe, network error).
+
+### 26.3 Subgraph Uncertainty Isolation Invariant
+1. **Local Ambiguity Bound**: An `UNKNOWN` evidence state affects only hypotheses whose signature, rule conditions, or `REQUIRES` relations depend on that specific evidence.
+2. **Disjoint Subgraph Immunity**: Unrelated probe uncertainties (e.g. a timed-out TLS certificate check on a disjoint network path) MUST NEVER contaminate or invalidate an independently verified causal chain (e.g. PostgreSQL connection pool exhaustion).
+
+### 26.4 Deterministic Multi-Candidate Arbitration Invariant (C9, C9b, C10)
+1. **Zero Guesswork**: The engine is strictly forbidden from random selection, Bayesian heuristics, or LLM-based tie-breaking.
+2. **Non-Arbitrary Retention (C10)**: When multiple causes are simultaneously confirmed without declared hierarchy or catalog `priority`:
+   - `primary_root_cause = None`
+   - `status = ROOT_CAUSE_CONSTRAINED`
+   - All concurrent candidates are preserved with `state = POSSIBLE`.
+3. **Explicit Priority Resolution (C9)**: Disambiguation is permitted when an explicit catalog rule metadata `priority: <int>` designates the primary candidate with the strictly highest integer value.
+4. **Priority Tie Invariant (C9b)**: If multiple candidate roots share the exact same highest declared priority ($\text{priority}(A) == \text{priority}(B) == \max$), the engine MUST NOT break the tie using dictionary insertion order, file order, or alphabetical sorting. The tie cannot be resolved:
+   - `primary_root_cause = None`
+   - `status = ROOT_CAUSE_CONSTRAINED`
+   - All tied candidates are preserved with `state = POSSIBLE`.
+5. **Hierarchical Resolution**: When candidates form a multi-hop directed path in the causal graph, the upstream root candidate ($C_1 \longrightarrow^* C_2$) mathematically supersedes downstream intermediate nodes.
+
+### 26.5 Formal Causal Relations Contract (C11, C12)
+The engine evaluates three fundamental causal relations:
+1. **`PROPAGATES_TO`** ($A \longrightarrow B$): The root situation $A$ explains the downstream occurrence or propagation of symptom $B$.
+2. **`PRECLUDES`** ($A \mathrel{\rlap{\quad\not}\longrightarrow} B$): An observed condition or healthy signature $A$ formally refutes hypothesis $B$, removing it from active candidate consideration.
+3. **`REQUIRES`** ($A \xleftarrow{\text{req}} B$): Assertion of hypothesis $A$ strictly requires verification of prerequisite evidence or condition $B$:
+   - **Prerequisite Satisfied ($B = \text{PASS}$)**: Hypothesis $A$ may be confirmed if its own failure signature is satisfied.
+   - **Prerequisite Ambiguous ($B = \text{UNKNOWN}$ — C11)**: Hypothesis $A$ cannot be confirmed or refuted; it transitions to `UNRESOLVED` with `missing_evidence: [B]` and is recorded in `unresolved_hypotheses`.
+   - **Prerequisite Failed ($B = \text{FAIL}$ — C12)**: The indispensable prerequisite has failed, formally refuting hypothesis $A$. Hypothesis $A$ transitions to **`PRECLUDED`** and is recorded in `precluded_hypotheses`. `PRECLUDED` is an exclusion outcome and is represented in `precluded_hypotheses`; it is not an active `CausalCandidateState` (active candidates remain `CONFIRMED`, `POSSIBLE`, and `UNRESOLVED`).
+
+### 26.6 Causal Explanation & Provenance Schema
+Diagnostic results serialize the deterministic causal reasoning according to `schemas/diagnosis-result.schema.json`:
+- `status`: `ROOT_CAUSE_IDENTIFIED` | `ROOT_CAUSE_CONSTRAINED` | `ROOT_CAUSE_UNKNOWN`.
+- `primary_root_cause`: `str | None`.
+- `target_situation`: optional target incident situation being explained.
+- `causal_chain`: ordered list of situations from root cause to observed symptoms.
+- `propagated_symptoms`: surface symptoms explained by the graph.
+- `precluded_hypotheses`: hypotheses formally refuted by healthy signals or failed prerequisites.
+- `unresolved_hypotheses`: hypotheses whose resolution is blocked by `UNKNOWN` observations.
+- `candidate_causes`: structured list of `CausalCandidate` records (`id`, `state`, `causal_path`, `missing_evidence`, `description`).
+- `cycles_detected`: optional list of detected cycle paths (e.g. `[["A", "B", "A"]]`).
+
+### 26.7 Pre-Arbitration Graph Validation & Cycle Handling Invariant (C7)
+1. **Validation Precedence**: *Causal graph validation MUST happen before causal arbitration*. `_arbitrate_candidates()` must never assume an acyclic graph.
+2. **Cycle Detection**: The candidate propagation graph undergoes formal cycle detection prior to root candidate arbitration.
+3. **Cyclic Disambiguation Immunity**: When candidate nodes form a directed cycle ($A \longrightarrow B \longrightarrow A$), no node possesses `in_degree == 0` within the cycle. The engine MUST NOT crash on empty roots or guess a starting point:
+   - `primary_root_cause = None`
+   - `status = ROOT_CAUSE_CONSTRAINED`
+   - All cyclic candidates are preserved with `state = POSSIBLE`.
+   - The detected cycles are explicitly recorded in `cycles_detected`.
+4. **General Graph Robustness**: The engine must gracefully handle acyclic, cyclic, empty, disconnected graphs, or multiple components without ever raising an unhandled exception.
+
+### 26.8 Long Causal Chain Topological Preservation Invariant (C8)
+For any multi-hop causal propagation path ($A \longrightarrow B \longrightarrow C \longrightarrow D \longrightarrow S$):
+1. **Node Completeness**: Every intermediate causal hop must be preserved; no node may be omitted from `causal_chain`.
+2. **Strict Topological Ordering**: The ordered sequence in `causal_chain` must strictly mirror the declared directed edges ($[A, B, C, D, S]$). Arbitrary permutations (such as $[A, C, B, D, S]$) are strictly prohibited.
+
+### 26.9 Causal Subgraph Isolation Invariant (C14, C19 / H1)
+1. **Reachability Strictness**: Every node appearing in `causal_chain` or `propagated_symptoms` MUST belong strictly to the directed reachable subgraph of the primary root cause.
+2. **Disjoint Symptom Immunity**: If an observed symptom $S_2$ belongs to a disjoint causal component or an unconfirmed root $B$ ($B \longrightarrow S_2$), and root $A$ is identified ($A \longrightarrow S_1$), $S_2$ and $B$ MUST NEVER appear in $A$'s `causal_chain` or `propagated_symptoms`. Fallback iteration appending unvisited symptoms is strictly prohibited.
+
+### 26.10 Contiguous Causal Path & Branching Semantics Invariant (C15 / H2)
+1. **Contiguous Directed Path**: `causal_chain` represents a single, valid, contiguous directed path $[v_0, v_1, \dots, v_k]$ where every adjacent pair $(v_i, v_{i+1})$ is an explicit directed edge declared in the catalog ($v_i \longrightarrow v_{i+1}$).
+2. **Branching Graph Disambiguation**: In branching topologies (e.g. $A \longrightarrow B \longrightarrow S$ and $A \longrightarrow C \longrightarrow S$), linearized node combinations that contain non-existent transitions (e.g. $[A, B, C, S]$ where $B \longrightarrow C$ does not exist) are strictly forbidden. To find the path to target symptoms, BFS traverses neighbors ordered by edge priority (yielding minimum hops); `_build_causal_chain` deterministically selects among candidate paths by evaluating path depth, edge priority sum, and deterministic lexicographical tie-breaking.
+
+### 26.11 Multi-Rule Source Preservation Invariant (C16 / H3)
+1. **No Rule Overwriting**: Declarative causal catalogs allow a single source node to originate multiple distinct propagation rules ($A \longrightarrow B$ and $A \longrightarrow C$). All rules MUST be preserved within `dict[str, list[CausalRule]]`.
+2. **Candidate Multi-Rule Evaluation**: Candidate priority reflects the maximum priority declared among all its outgoing propagation rules. The candidate's descriptive metadata reflects the specific active rule governing the traversed edge.
+
+### 26.12 Fail-Closed Catalog Validation & Zero Silent Coercion Invariant (C17, C18, C20-C23 / H4, H4.1)
+1. **Mandatory Schema Fields (H4 / C17, C18)**: Every causal rule must declare non-empty `id`, `source`, `target`, and `relation`. Omission or empty strings raise a `ValueError` during loading.
+2. **Strict Relation Parsing (H4 / C17)**: Any unrecognized or malformed relation type (e.g. typos like `PROPAGATSE_TO`) MUST fail closed by raising a `ValueError`. Silent fallback to `PROPAGATES_TO` is strictly prohibited.
+3. **Zero Silent Coercion for Priorities (H4.1 / C20)**: `priority` must strictly be an integer. String values (e.g. `"HIGH"`), booleans, or floats MUST fail closed with a `ValueError`. Silent fallback `priority = 0` is strictly prohibited.
+4. **Strict Condition Validation (H4.1 / C21)**: `conditions` must strictly be a dictionary or list formatted with valid `EvidenceStatus` values (`PASS`, `FAIL`, `UNKNOWN`). Non-dict/non-list types, empty condition keys, missing `=` delimiters, or invalid status tokens MUST fail closed with a `ValueError`.
+5. **Strict Boolean Flags (H4.1 / C22)**: Flags such as `is_root_cause_candidate` and `is_surface_symptom` must strictly evaluate as native boolean types. String coercions (e.g. `"maybe"`, `"true"`) or integer representations MUST fail closed with a `ValueError`.
+6. **Strict Rule Structure (H4.1 / C23)**: Every element in `causal_rules` must strictly be a dictionary. Non-dict items MUST fail closed with a `ValueError` rather than being silently filtered.
+7. **Core Principle**: *A causal catalog must never be interpreted differently from what its author declared.* Corrupted or ambiguous catalogs must fail fast during loading.
+
